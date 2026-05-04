@@ -1,0 +1,12 @@
+   
+
+       npm run dev
+
+
+
+  http://localhost:5173/
+
+
+senha do banco de dados 
+
+JPeventos@2026!

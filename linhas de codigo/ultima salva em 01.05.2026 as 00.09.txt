@@ -1,0 +1,1047 @@
+import { useEffect, useMemo, useState } from "react";
+import jsPDF from "jspdf";
+import assinatura from "./img/assinatura.png";
+
+export default function App() {
+  const [eventos, setEventos] = useState(() => {
+    try {
+      const salvos = localStorage.getItem("eventos");
+      return salvos ? JSON.parse(salvos) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [editandoId, setEditandoId] = useState(null);
+  const [busca, setBusca] = useState("");
+  const [aba, setAba] = useState("cadastro");
+  const [reciboAberto, setReciboAberto] = useState(null);
+  const [tipoRecibo, setTipoRecibo] = useState("sinal");
+  const [pagamentoRecibo, setPagamentoRecibo] = useState("Pix");
+  const [filtroStatus, setFiltroStatus] = useState("todos");
+  const [mesCalendario, setMesCalendario] = useState(() => new Date().getMonth());
+  const [anoCalendario, setAnoCalendario] = useState(() => new Date().getFullYear());
+  const [diaSelecionado, setDiaSelecionado] = useState(null);
+
+  const formInicial = {
+    nome: "",
+    cpf: "",
+    whatsapp: "",
+    tipoEvento: "",
+    data: "",
+    horaInicio: "",
+    horaFim: "",
+    endereco: "",
+    cidade: "",
+    pacote: "",
+    pacotePersonalizado: "",
+    valor: "",
+    entrada: "",
+    formaEntrada: "",
+    formaPagamento: "",
+    parcelas: "",
+    obs: "",
+    status: "pre",
+    executado: false,
+    quitado: false
+  };
+
+  const [form, setForm] = useState(formInicial);
+
+  useEffect(() => {
+    localStorage.setItem("eventos", JSON.stringify(eventos));
+  }, [eventos]);
+
+  const estilos = {
+    pagina: {
+      minHeight: "100vh",
+      padding: 20,
+      background: "linear-gradient(135deg, #09090b, #111827, #1a0f2e)",
+      color: "white",
+      fontFamily: "Arial, sans-serif"
+    },
+    titulo: {
+      marginBottom: 4,
+      color: "#ffffff"
+    },
+    subtitulo: {
+      marginTop: 0,
+      color: "#c4b5fd"
+    },
+    input: {
+      width: "100%",
+      boxSizing: "border-box",
+      marginBottom: 10,
+      background: "#111827",
+      color: "white",
+      padding: 12,
+      borderRadius: 8,
+      border: "1px solid #6c2bd9",
+      outline: "none"
+    },
+    textarea: {
+      width: "100%",
+      minHeight: 80,
+      boxSizing: "border-box",
+      marginBottom: 10,
+      background: "#111827",
+      color: "white",
+      padding: 12,
+      borderRadius: 8,
+      border: "1px solid #6c2bd9",
+      outline: "none"
+    },
+    botao: {
+      margin: "4px 4px 4px 0",
+      padding: "10px 12px",
+      borderRadius: 8,
+      border: "none",
+      background: "#374151",
+      color: "white",
+      cursor: "pointer",
+      fontWeight: "bold"
+    },
+    botaoRoxo: {
+      margin: "4px 4px 4px 0",
+      padding: "10px 12px",
+      borderRadius: 8,
+      border: "none",
+      background: "#6c2bd9",
+      color: "white",
+      cursor: "pointer",
+      fontWeight: "bold"
+    },
+    card: {
+      border: "1px solid #6c2bd9",
+      background: "rgba(17, 24, 39, 0.92)",
+      padding: 14,
+      marginBottom: 12,
+      borderRadius: 10,
+      boxShadow: "0 0 10px rgba(108,43,217,0.25)"
+    },
+    gridResumo: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+      gap: 12,
+      marginBottom: 20
+    },
+    cardResumo: {
+      background: "rgba(42, 21, 80, 0.85)",
+      border: "1px solid #6c2bd9",
+      borderRadius: 12,
+      padding: 14,
+      boxShadow: "0 0 10px rgba(108,43,217,0.25)"
+    }
+  };
+
+  const moeda = (valor) =>
+    Number(valor || 0).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL"
+    });
+
+  const dataBR = (data) => {
+    if (!data) return "Não informado";
+    const [ano, mes, dia] = data.split("-");
+    const dataObj = new Date(Number(ano), Number(mes) - 1, Number(dia));
+    const dias = [
+      "domingo",
+      "segunda-feira",
+      "terça-feira",
+      "quarta-feira",
+      "quinta-feira",
+      "sexta-feira",
+      "sábado"
+    ];
+    return `${dias[dataObj.getDay()]} - ${dia}/${mes}/${ano}`;
+  };
+
+  const dataCurtaBR = (data) => {
+    if (!data) return "";
+    const [ano, mes, dia] = data.split("-");
+    return `${dia}/${mes}/${ano}`;
+  };
+
+  const normalizarTexto = (texto) =>
+    String(texto || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+
+  const ehPreCadastro = (e) => !e.valor || Number(e.valor || 0) === 0;
+
+  const statusEvento = (e) => {
+    if (ehPreCadastro(e)) return "pre";
+    if (e.quitado) return "pago";
+    return "pendente";
+  };
+
+  const textoStatus = (e) => {
+    if (ehPreCadastro(e)) return "🟡 PRÉ-RESERVA / DATA RESERVADA";
+    if (e.quitado) return "🟢 PAGO";
+    return "🔴 PENDENTE";
+  };
+
+  const corStatus = (e) => {
+    if (ehPreCadastro(e)) return "orange";
+    if (e.quitado) return "limegreen";
+    return "#ff6b6b";
+  };
+
+  const limpar = () => {
+    setForm(formInicial);
+    setEditandoId(null);
+  };
+
+  const salvar = () => {
+    if (!form.nome || !form.whatsapp || !form.tipoEvento || !form.data) {
+      alert("Preencha pelo menos nome, WhatsApp, tipo de evento e data.");
+      return;
+    }
+
+    const dadosEvento = {
+      ...form,
+      quitado:
+        form.formaPagamento === "Valor total" ||
+        form.formaPagamento === "Valor total à vista" ||
+        Number(form.valor || 0) > 0 && Number(form.entrada || 0) >= Number(form.valor || 0)
+          ? true
+          : Boolean(form.quitado),
+      executado: Boolean(form.executado)
+    };
+
+    if (editandoId) {
+      const atualizados = eventos.map((e) =>
+        e.id === editandoId
+          ? {
+              ...dadosEvento,
+              id: editandoId,
+              dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR")
+            }
+          : e
+      );
+      setEventos(atualizados);
+    } else {
+      const novo = {
+        ...dadosEvento,
+        id: Date.now(),
+        dataCadastro: new Date().toLocaleString("pt-BR")
+      };
+      setEventos([novo, ...eventos]);
+    }
+
+    limpar();
+    setAba("eventos");
+  };
+
+  const excluirEvento = (id) => {
+    if (confirm("Tem certeza que deseja excluir este cadastro?")) {
+      setEventos(eventos.filter((e) => e.id !== id));
+    }
+  };
+
+  const editarEvento = (evento) => {
+    setForm({ ...formInicial, ...evento });
+    setEditandoId(evento.id);
+    setAba("cadastro");
+  };
+
+  const toggleExecutado = (id) => {
+    setEventos(eventos.map((e) => (e.id === id ? { ...e, executado: !e.executado } : e)));
+  };
+
+  const marcarQuitado = (id, quitado) => {
+    setEventos(eventos.map((e) => (e.id === id ? { ...e, quitado } : e)));
+  };
+
+  const calcularDuracao = (inicio, fim) => {
+    if (!inicio || !fim) return "Não informado";
+    const [h1, m1] = inicio.split(":").map(Number);
+    const [h2, m2] = fim.split(":").map(Number);
+    if ([h1, m1, h2, m2].some((v) => Number.isNaN(v))) return "Não informado";
+    let diferenca = h2 * 60 + m2 - (h1 * 60 + m1);
+    if (diferenca < 0) diferenca += 24 * 60;
+    const horas = Math.floor(diferenca / 60);
+    const minutos = diferenca % 60;
+    if (minutos === 0) return `${horas} horas`;
+    return `${horas}h ${minutos}min`;
+  };
+
+  const abrirWhatsApp = (evento) => {
+    const numero = typeof evento === "string" ? evento : evento.whatsapp;
+    if (!numero) {
+      alert("WhatsApp não informado.");
+      return;
+    }
+
+    let numeroLimpo = numero.replace(/\D/g, "");
+    if (!numeroLimpo.startsWith("55")) numeroLimpo = `55${numeroLimpo}`;
+
+    const mensagem =
+      typeof evento === "string"
+        ? "Olá! Tudo bem?"
+        : `Olá, ${evento.nome}! Tudo bem? Passando para falar sobre o evento ${evento.tipoEvento} marcado para ${dataCurtaBR(evento.data)} às ${evento.horaInicio || "horário combinado"}.`;
+
+    window.open(`https://wa.me/${numeroLimpo}?text=${encodeURIComponent(mensagem)}`, "_blank");
+  };
+
+  const abrirGoogleAgenda = (evento) => {
+    if (!evento.data) {
+      alert("Data não informada.");
+      return;
+    }
+
+    const data = evento.data.replaceAll("-", "");
+    const horaInicio = (evento.horaInicio || "12:00").replace("h", ":").replace(/\D/g, "").padEnd(4, "0");
+    const horaFim = (evento.horaFim || "13:00").replace("h", ":").replace(/\D/g, "").padEnd(4, "0");
+    const dataInicio = `${data}T${horaInicio}00`;
+    const dataFim = `${data}T${horaFim}00`;
+    const titulo = `${evento.nome} - ${evento.tipoEvento}`;
+    const detalhes = `Cliente: ${evento.nome}\nWhatsApp: ${evento.whatsapp}\nPacote: ${evento.pacote === "Outro" ? evento.pacotePersonalizado : evento.pacote}\nStatus: ${textoStatus(evento)}`;
+
+    const url =
+      "https://www.google.com/calendar/render?action=TEMPLATE" +
+      `&text=${encodeURIComponent(titulo)}` +
+      `&dates=${dataInicio}/${dataFim}` +
+      `&details=${encodeURIComponent(detalhes)}` +
+      `&location=${encodeURIComponent(evento.endereco || "")}`;
+
+    window.open(url, "_blank");
+  };
+
+  const textoCompleto = (e) => {
+    const total = Number(e.valor || 0);
+    const entrada = Number(e.entrada || 0);
+    const pendente = e.quitado ? 0 : Math.max(total - entrada, 0);
+
+    return [
+      `Nome: ${e.nome}`,
+      `CPF: ${e.cpf || "Não informado"}`,
+      `WhatsApp: ${e.whatsapp}`,
+      `Tipo do evento: ${e.tipoEvento}`,
+      `Data do evento: ${dataBR(e.data)}`,
+      `Horário: ${e.horaInicio || "Não informado"} às ${e.horaFim || "Não informado"}`,
+      `Duração: ${calcularDuracao(e.horaInicio, e.horaFim)}`,
+      `Endereço: ${e.endereco || "Não informado"}`,
+      `Cidade: ${e.cidade || "Não informado"}`,
+      `Pacote: ${e.pacote === "Outro" ? e.pacotePersonalizado : e.pacote || "Não informado"}`,
+      `Valor total: ${moeda(total)}`,
+      `Entrada / sinal: ${moeda(entrada)}`,
+      `Forma da entrada: ${e.formaEntrada || "Não informada"}`,
+      `Forma de pagamento: ${e.formaPagamento || "Não informada"}`,
+      e.parcelas ? `Parcelas: ${e.parcelas}` : "",
+      `Pendente: ${moeda(pendente)}`,
+      `Status: ${textoStatus(e)}`,
+      `Observações: ${e.obs || "Nenhuma"}`,
+      `Data do cadastro: ${e.dataCadastro || "Não informado"}`
+    ]
+      .filter(Boolean)
+      .join("\n");
+  };
+
+  const abrirRecibo = (evento) => {
+    setReciboAberto(evento);
+    setTipoRecibo("sinal");
+    setPagamentoRecibo(evento.formaEntrada || evento.formaPagamento || "Pix");
+  };
+
+  const gerarContrato = (e) => {
+    const doc = new jsPDF();
+    const total = Number(e.valor || 0);
+    const entrada = Number(e.entrada || 0);
+    const pendente = e.quitado ? 0 : Math.max(total - entrada, 0);
+
+    doc.setFillColor(30, 60, 150);
+    doc.rect(0, 0, 210, 50, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text("CONTRATO DE PRESTAÇÃO DE SERVIÇO", 105, 25, { align: "center" });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(12);
+    doc.text("@JP Eventos Fortaleza | @Vdj JeanMix", 105, 35, { align: "center" });
+    doc.text("WhatsApp: (85) 98708-3412", 105, 43, { align: "center" });
+    doc.setTextColor(0, 0, 0);
+
+    let y = 65;
+    const linhas = [
+      `Nome: ${e.nome}`,
+      `CPF: ${e.cpf || "Não informado"}`,
+      `WhatsApp: ${e.whatsapp}`,
+      `Tipo do evento: ${e.tipoEvento}`,
+      `Data do evento: ${dataBR(e.data)}`,
+      `Horário: ${e.horaInicio || "Não informado"} às ${e.horaFim || "Não informado"}`,
+      `Duração: ${calcularDuracao(e.horaInicio, e.horaFim)}`,
+      `Endereço: ${e.endereco || "Não informado"}`,
+      `Cidade: ${e.cidade || "Não informado"}`,
+      `Pacote: ${e.pacote === "Outro" ? e.pacotePersonalizado : e.pacote || "Não informado"}`,
+      `Observações: ${e.obs || "Nenhuma"}`,
+      `Valor total: ${moeda(total)}`,
+      `Entrada / sinal: ${moeda(entrada)}`,
+      `Forma da entrada: ${e.formaEntrada || "Não informada"}`,
+      `Forma de pagamento: ${e.formaPagamento || "Não informada"}`,
+      ...(e.parcelas ? [`Parcelas: ${e.parcelas}`] : []),
+      `Pendente: ${moeda(pendente)}`
+    ];
+
+    linhas.forEach((linha) => {
+      if (y > 275) {
+        doc.addPage();
+        y = 25;
+      }
+      doc.text(linha, 14, y);
+      y += 7;
+    });
+
+    y += 6;
+
+    const clausulas = [
+      entrada > 0
+        ? `Em caso de desistência, cancelamento do evento ou quebra do acordo por parte do contratante, o valor já pago a título de entrada/sinal, correspondente a ${moeda(entrada)}, não será devolvido, por se tratar da reserva da data e bloqueio da agenda do contratado.`
+        : e.quitado
+          ? `Em caso de desistência, cancelamento do evento ou quebra do acordo por parte do contratante, será retido 50% do valor total contratado, correspondente a ${moeda(total * 0.5)}, por se tratar da reserva da data e bloqueio da agenda do contratado.`
+          : "Em caso de desistência, cancelamento do evento ou quebra do acordo por parte do contratante, tratando-se apenas de pré-reserva sem pagamento, não haverá cobrança de cancelamento, podendo a data ser liberada pelo contratado.",
+      "O valor restante deverá ser quitado integralmente até a data do evento, antes do início da prestação do serviço. A não quitação poderá impedir a realização do serviço no dia do evento.",
+      "O contratante é responsável por garantir a segurança dos equipamentos e da equipe durante o evento. Em caso de danos, extravio, quebra de equipamentos ou qualquer prejuízo causado por convidados, terceiros ou pelo próprio contratante, o contratante se responsabiliza integralmente pelo ressarcimento dos valores correspondentes.",
+      "Em caso de condições climáticas adversas, como chuva ou situações que comprometam a segurança da estrutura e dos equipamentos, o contratante deverá providenciar cobertura adequada ou local protegido. Caso não haja condições seguras para a realização do serviço, a apresentação poderá ser suspensa sem responsabilidade do contratado."
+    ];
+
+    clausulas.forEach((texto) => {
+      if (y > 230) {
+        doc.addPage();
+        y = 30;
+      }
+      const quebrado = doc.splitTextToSize(texto, 180);
+      doc.text(quebrado, 14, y);
+      y += quebrado.length * 7 + 8;
+    });
+
+    if (y > 230) {
+      doc.addPage();
+      y = 40;
+    }
+
+    doc.text(`Fortaleza/CE, ${new Date().toLocaleDateString("pt-BR")}`, 14, y);
+    y += 12;
+    doc.addImage(assinatura, "PNG", 20, y, 55, 25);
+    y += 28;
+    doc.line(14, y, 95, y);
+    y += 7;
+    doc.text("Jean Carlos da Silva", 54, y, { align: "center" });
+    y += 6;
+    doc.text("Assinatura / responsável", 54, y, { align: "center" });
+
+    doc.save(`contrato_${e.nome}.pdf`);
+  };
+
+  const gerarRecibo = () => {
+    if (!reciboAberto) return;
+
+    const e = reciboAberto;
+    const doc = new jsPDF();
+    const total = Number(e.valor || 0);
+    const entrada = Number(e.entrada || 0);
+    const pendente = tipoRecibo === "total" ? 0 : Math.max(total - entrada, 0);
+    const valorRecibo = tipoRecibo === "sinal" ? entrada : total;
+    const titulo = tipoRecibo === "sinal" ? "RECIBO DE SINAL / ENTRADA" : "RECIBO DE PAGAMENTO TOTAL";
+
+    doc.setFillColor(30, 60, 150);
+    doc.rect(0, 0, 210, 50, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text(titulo, 105, 22, { align: "center" });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(12);
+    doc.text("@JP Eventos Fortaleza | @Vdj JeanMix", 105, 32, { align: "center" });
+    doc.text("WhatsApp: (85) 98708-3412", 105, 40, { align: "center" });
+    doc.setTextColor(0, 0, 0);
+
+    let y = 70;
+    const linhas = [
+      `Recebi de: ${e.nome}`,
+      `CPF: ${e.cpf || "Não informado"}`,
+      `WhatsApp: ${e.whatsapp}`,
+      `Tipo do evento: ${e.tipoEvento}`,
+      `Data do evento: ${dataBR(e.data)}`,
+      `Horário: ${e.horaInicio || "Não informado"} às ${e.horaFim || "Não informado"}`,
+      `Endereço: ${e.endereco || "Não informado"}`,
+      `Cidade: ${e.cidade || "Não informado"}`,
+      `Pacote: ${e.pacote === "Outro" ? e.pacotePersonalizado : e.pacote || "Não informado"}`,
+      `Tipo do recibo: ${tipoRecibo === "sinal" ? "Sinal / Entrada" : "Pagamento total"}`,
+      `Forma de pagamento: ${pagamentoRecibo}`,
+      `Valor deste recibo: ${moeda(valorRecibo)}`,
+      `Valor total do evento: ${moeda(total)}`,
+      `Entrada / sinal: ${moeda(entrada)}`,
+      `Pendente: ${moeda(pendente)}`
+    ];
+
+    linhas.forEach((linha) => {
+      doc.text(linha, 14, y);
+      y += 7;
+    });
+
+    y += 10;
+    const texto =
+      tipoRecibo === "sinal"
+        ? `Declaro que recebi o valor de ${moeda(valorRecibo)} referente ao sinal/entrada para reserva da data do evento acima descrito.`
+        : `Declaro que recebi o valor total de ${moeda(valorRecibo)} referente à prestação de serviço para o evento acima descrito.`;
+
+    const textoQuebrado = doc.splitTextToSize(texto, 180);
+    doc.text(textoQuebrado, 14, y);
+    y += textoQuebrado.length * 7 + 15;
+    doc.text(`Fortaleza/CE, ${new Date().toLocaleDateString("pt-BR")}`, 14, y);
+    y += 15;
+    doc.addImage(assinatura, "PNG", 20, y, 55, 25);
+    y += 28;
+    doc.line(14, y, 95, y);
+    y += 7;
+    doc.text("Jean Carlos da Silva", 54, y, { align: "center" });
+    y += 6;
+    doc.text("Assinatura / responsável", 54, y, { align: "center" });
+
+    doc.save(`recibo_${tipoRecibo}_${e.nome}.pdf`);
+
+    if (tipoRecibo === "total") {
+      marcarQuitado(e.id, true);
+    }
+
+    setReciboAberto(null);
+  };
+
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+
+  const agendaOrdenada = useMemo(() => {
+    return [...eventos].sort((a, b) => {
+      const dataA = `${a.data || "9999-12-31"} ${a.horaInicio || "00:00"}`;
+      const dataB = `${b.data || "9999-12-31"} ${b.horaInicio || "00:00"}`;
+      return new Date(dataA) - new Date(dataB);
+    });
+  }, [eventos]);
+
+  const eventosFuturos = agendaOrdenada.filter((e) => {
+    if (!e.data) return false;
+    const [ano, mes, dia] = e.data.split("-");
+    const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
+    return dataEvento >= hoje;
+  });
+
+  const proximoEvento = eventosFuturos[0];
+
+  const lembretes = eventosFuturos.filter((e) => {
+    const [ano, mes, dia] = e.data.split("-");
+    const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
+    const dias = Math.ceil((dataEvento - hoje) / (1000 * 60 * 60 * 24));
+    return dias >= 0 && dias <= 7;
+  });
+
+  const eventosNaMesmaData = form.data ? eventos.filter((e) => e.data === form.data && e.id !== editandoId) : [];
+
+  const listaFiltrada = eventos.filter((e) => {
+    const texto = normalizarTexto(busca);
+    const statusPagamento = ehPreCadastro(e)
+      ? "pre reserva pré reserva pre cadastro pré cadastro data reservada reserva"
+      : e.quitado
+        ? "pago quitado recebido"
+        : "pendente aberto falta pagar";
+
+    const conteudo = `
+      ${e.nome || ""}
+      ${e.cpf || ""}
+      ${e.whatsapp || ""}
+      ${e.tipoEvento || ""}
+      ${e.data || ""}
+      ${dataBR(e.data) || ""}
+      ${e.pacote || ""}
+      ${e.pacotePersonalizado || ""}
+      ${e.obs || ""}
+      ${e.endereco || ""}
+      ${e.cidade || ""}
+      ${e.formaEntrada || ""}
+      ${e.formaPagamento || ""}
+      ${e.parcelas || ""}
+      ${statusPagamento}
+      ${e.executado ? "executado realizado" : "nao executado"}
+    `;
+
+    const passouBusca = normalizarTexto(conteudo).includes(texto);
+    const passouFiltro =
+      filtroStatus === "todos" ||
+      filtroStatus === statusEvento(e) ||
+      (filtroStatus === "executado" && e.executado) ||
+      (filtroStatus === "naoExecutado" && !e.executado);
+
+    return passouBusca && passouFiltro;
+  });
+
+  const totalRecebido = eventos.filter((e) => e.quitado).reduce((acc, e) => acc + Number(e.valor || 0), 0);
+  const totalEntradas = eventos.reduce((acc, e) => acc + Number(e.entrada || 0), 0);
+  const totalPendente = eventos
+    .filter((e) => !e.quitado)
+    .reduce((acc, e) => acc + Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0), 0);
+  const eventosPagos = eventos.filter((e) => e.quitado).length;
+  const eventosPendentes = eventos.filter((e) => !ehPreCadastro(e) && !e.quitado).length;
+  const eventosPreReserva = eventos.filter((e) => ehPreCadastro(e)).length;
+  const faturamentoTotal = eventos.reduce((acc, e) => acc + Number(e.valor || 0), 0);
+
+  const saldoHoje = eventos
+    .filter((e) => {
+      if (!e.data || !e.quitado) return false;
+      const [ano, mes, dia] = e.data.split("-");
+      const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
+      return dataEvento.getTime() === hoje.getTime();
+    })
+    .reduce((acc, e) => acc + Number(e.valor || 0), 0);
+
+  const quinzeDiasAtras = new Date(hoje);
+  quinzeDiasAtras.setDate(hoje.getDate() - 15);
+
+  const saldo15Dias = eventos
+    .filter((e) => {
+      if (!e.data || !e.quitado) return false;
+      const [ano, mes, dia] = e.data.split("-");
+      const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
+      return dataEvento >= quinzeDiasAtras && dataEvento <= hoje;
+    })
+    .reduce((acc, e) => acc + Number(e.valor || 0), 0);
+
+  const saldoMes = eventos
+    .filter((e) => {
+      if (!e.data || !e.quitado) return false;
+      const [ano, mes, dia] = e.data.split("-");
+      const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
+      return dataEvento.getMonth() === hoje.getMonth() && dataEvento.getFullYear() === hoje.getFullYear();
+    })
+    .reduce((acc, e) => acc + Number(e.valor || 0), 0);
+
+  const eventosDoMes = eventos.filter((e) => {
+    if (!e.data) return false;
+    const [ano, mes] = e.data.split("-").map(Number);
+    return ano === anoCalendario && mes - 1 === mesCalendario;
+  });
+
+  const primeiroDiaMes = new Date(anoCalendario, mesCalendario, 1).getDay();
+  const ultimoDiaMes = new Date(anoCalendario, mesCalendario + 1, 0).getDate();
+  const diasCalendario = [
+    ...Array.from({ length: primeiroDiaMes }, () => null),
+    ...Array.from({ length: ultimoDiaMes }, (_, i) => i + 1)
+  ];
+
+  const nomeMes = new Date(anoCalendario, mesCalendario, 1).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric"
+  });
+
+  const mudarMes = (direcao) => {
+    const novaData = new Date(anoCalendario, mesCalendario + direcao, 1);
+    setMesCalendario(novaData.getMonth());
+    setAnoCalendario(novaData.getFullYear());
+    setDiaSelecionado(null);
+  };
+
+  const eventosDoDiaSelecionado = diaSelecionado
+    ? eventosDoMes.filter((e) => Number(e.data.split("-")[2]) === diaSelecionado)
+    : [];
+
+  const CardEvento = ({ e }) => (
+    <div style={{ ...estilos.card, borderColor: corStatus(e) }}>
+      <strong style={{ color: e.executado ? "limegreen" : "white", fontSize: 18 }}>{e.nome}</strong>
+      <br />
+      Tipo do evento: {e.tipoEvento}
+      <br />
+      <span style={{ color: "deepskyblue" }}>Data: {dataBR(e.data)}</span>
+      <br />
+      Horário: {e.horaInicio || "Não informado"} às {e.horaFim || "Não informado"}
+      <br />
+      Duração: {calcularDuracao(e.horaInicio, e.horaFim)}
+      <br />
+      WhatsApp: {e.whatsapp}
+      <br />
+      Pacote: {e.pacote === "Outro" ? e.pacotePersonalizado : e.pacote || "Não informado"}
+      <br />
+      Endereço: {e.endereco || "Não informado"}
+      <br />
+      Cidade: {e.cidade || "Não informado"}
+      <br />
+      {e.obs && (
+        <>
+          Observações: {e.obs}
+          <br />
+        </>
+      )}
+      <span style={{ color: "deepskyblue" }}>
+        Valor total: {moeda(Number(e.valor || 0))}
+        <br />
+        Entrada / sinal: {moeda(Number(e.entrada || 0))}
+        <br />
+        Forma da entrada: {e.formaEntrada || "Não informada"}
+        <br />
+        Forma de pagamento: {e.formaPagamento || "Não informada"}
+        <br />
+        {e.parcelas && (
+          <>
+            Parcelas: {e.parcelas}
+            <br />
+          </>
+        )}
+      </span>
+      <span style={{ color: corStatus(e), fontWeight: "bold" }}>
+        Pendente: {e.quitado ? moeda(0) : moeda(Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0))}
+        <br />
+        Status: {textoStatus(e)}
+      </span>
+      <br />
+      <button style={estilos.botao} onClick={() => gerarContrato(e)}>Contrato</button>
+      <button style={estilos.botao} onClick={() => abrirRecibo(e)}>Recibo</button>
+      <button style={estilos.botao} onClick={() => abrirWhatsApp(e)}>WhatsApp</button>
+      <button style={estilos.botao} onClick={() => abrirGoogleAgenda(e)}>📅 Google Agenda</button>
+      <button
+        style={estilos.botao}
+        onClick={() => {
+          navigator.clipboard.writeText(textoCompleto(e));
+          alert("Cadastro copiado!");
+        }}
+      >
+        Copiar
+      </button>
+      <button style={estilos.botao} onClick={() => editarEvento(e)}>✏️ Editar</button>
+      <button style={estilos.botao} onClick={() => marcarQuitado(e.id, true)}>Marcar pago</button>
+      <button style={estilos.botao} onClick={() => marcarQuitado(e.id, false)}>Marcar pendente</button>
+      <button style={estilos.botao} onClick={() => toggleExecutado(e.id)}>
+        {e.executado ? "✔ Executado" : "Marcar executado"}
+      </button>
+      <button style={{ ...estilos.botao, background: "#991b1b" }} onClick={() => excluirEvento(e.id)}>Excluir</button>
+    </div>
+  );
+
+  return (
+    <div style={estilos.pagina}>
+      <h1 style={estilos.titulo}>JP Eventos</h1>
+      <p style={estilos.subtitulo}>Cadastro, agenda, contratos, recibos e financeiro</p>
+
+      <input
+        placeholder="Buscar por cliente, data, status, cidade, pacote..."
+        value={busca}
+        onChange={(e) => {
+          setBusca(e.target.value);
+          setAba("eventos");
+        }}
+        style={estilos.input}
+      />
+
+      <div style={{ marginBottom: 20 }}>
+        {[
+          ["cadastro", editandoId ? "Editando" : "Cadastro"],
+          ["eventos", "Eventos"],
+          ["agenda", "Agenda"],
+          ["dashboard", "Dashboard"],
+          ["financeiro", "Financeiro"]
+        ].map(([id, nome]) => (
+          <button key={id} onClick={() => setAba(id)} style={aba === id ? estilos.botaoRoxo : estilos.botao}>
+            {nome}
+          </button>
+        ))}
+      </div>
+
+      {lembretes.length > 0 && (
+        <div style={{ ...estilos.card, background: "#3a2e00", borderColor: "orange" }}>
+          <strong>🔔 Lembrete:</strong> você tem {lembretes.length} evento(s) nos próximos 7 dias.
+          <button style={estilos.botao} onClick={() => setAba("agenda")}>Ver agenda</button>
+        </div>
+      )}
+
+      {aba === "cadastro" && (
+        <>
+          <h2>{editandoId ? "Editar cadastro" : "Novo cadastro"}</h2>
+
+          <input style={estilos.input} placeholder="Nome" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} />
+          <input style={estilos.input} placeholder="CPF" value={form.cpf} onChange={(e) => setForm({ ...form, cpf: e.target.value })} />
+          <input style={estilos.input} placeholder="WhatsApp" value={form.whatsapp} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} />
+          <input style={estilos.input} placeholder="Tipo Evento" value={form.tipoEvento} onChange={(e) => setForm({ ...form, tipoEvento: e.target.value })} />
+          <input style={estilos.input} type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} />
+
+          {form.data && eventosNaMesmaData.length > 0 && (
+            <div style={{ background: "#3a2e00", color: "yellow", padding: 10, borderRadius: 8, marginBottom: 10, border: "1px solid orange", fontWeight: "bold" }}>
+              ⚠️ Já existe(m) {eventosNaMesmaData.length} evento(s) cadastrado(s) nessa data.
+            </div>
+          )}
+
+          <input style={estilos.input} placeholder="Hora início" value={form.horaInicio} onChange={(e) => setForm({ ...form, horaInicio: e.target.value })} />
+          <input style={estilos.input} placeholder="Hora fim" value={form.horaFim} onChange={(e) => setForm({ ...form, horaFim: e.target.value })} />
+          <input style={estilos.input} placeholder="Endereço" value={form.endereco} onChange={(e) => setForm({ ...form, endereco: e.target.value })} />
+          <input style={estilos.input} placeholder="Cidade" value={form.cidade} onChange={(e) => setForm({ ...form, cidade: e.target.value })} />
+
+          <select style={estilos.input} value={form.pacote} onChange={(e) => setForm({ ...form, pacote: e.target.value })}>
+            <option value="">Selecione o pacote</option>
+            <option value="Pacote 01 - Dj + Som">Pacote 01 - Dj + Som</option>
+            <option value="Pacote 02 - Dj + Som + Iluminação">Pacote 02 - Dj + Som + Iluminação</option>
+            <option value="Pacote 03 - Completo">Pacote 03 - Completo</option>
+            <option value="Outro">Outro</option>
+          </select>
+
+          {form.pacote === "Outro" && (
+            <input style={estilos.input} placeholder="Digite o pacote personalizado" value={form.pacotePersonalizado || ""} onChange={(e) => setForm({ ...form, pacotePersonalizado: e.target.value })} />
+          )}
+
+          <input style={estilos.input} placeholder="Valor total" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} />
+          <input style={estilos.input} placeholder="Entrada" value={form.entrada} onChange={(e) => setForm({ ...form, entrada: e.target.value })} />
+
+          <select style={estilos.input} value={form.formaEntrada || ""} onChange={(e) => setForm({ ...form, formaEntrada: e.target.value })}>
+            <option value="">Forma da entrada / sinal</option>
+            <option value="Pix">Pix</option>
+            <option value="Dinheiro">Dinheiro</option>
+            <option value="Cartão de débito">Cartão de débito</option>
+            <option value="Cartão de crédito">Cartão de crédito</option>
+            <option value="Transferência bancária">Transferência bancária</option>
+          </select>
+
+          <select style={estilos.input} value={form.formaPagamento || ""} onChange={(e) => setForm({ ...form, formaPagamento: e.target.value })}>
+            <option value="">Selecione a forma de pagamento</option>
+            <option value="Entrada / sinal">Entrada / sinal</option>
+            <option value="Valor total">Valor total</option>
+            <option value="Pix">Pix</option>
+            <option value="Dinheiro">Dinheiro</option>
+            <option value="Cartão de débito">Cartão de débito</option>
+            <option value="Cartão de crédito">Cartão de crédito</option>
+            <option value="Valor total à vista">Valor total à vista</option>
+            <option value="Transferência bancária">Transferência bancária</option>
+          </select>
+
+          {form.formaPagamento === "Cartão de crédito" && (
+            <input style={estilos.input} placeholder="Parcelas (ex: 2x, 3x...)" value={form.parcelas || ""} onChange={(e) => setForm({ ...form, parcelas: e.target.value })} />
+          )}
+
+          <textarea style={estilos.textarea} placeholder="Observações" value={form.obs} onChange={(e) => setForm({ ...form, obs: e.target.value })} />
+
+          <button style={estilos.botaoRoxo} onClick={salvar}>{editandoId ? "Salvar edição" : "Salvar"}</button>
+          {editandoId && <button style={estilos.botao} onClick={limpar}>Cancelar edição</button>}
+        </>
+      )}
+
+      {aba === "eventos" && (
+        <>
+          <h2>Eventos</h2>
+
+          <div style={{ marginBottom: 12 }}>
+            {[
+              ["todos", "Todos"],
+              ["pre", "Pré-reserva"],
+              ["pago", "Pagos"],
+              ["pendente", "Pendentes"],
+              ["executado", "Executados"],
+              ["naoExecutado", "Não executados"]
+            ].map(([id, nome]) => (
+              <button key={id} style={filtroStatus === id ? estilos.botaoRoxo : estilos.botao} onClick={() => setFiltroStatus(id)}>
+                {nome}
+              </button>
+            ))}
+          </div>
+
+          <p>{listaFiltrada.length} cadastro(s) encontrado(s).</p>
+
+          {listaFiltrada.length === 0 && <p>Nenhum evento encontrado.</p>}
+          {listaFiltrada.map((e) => <CardEvento key={e.id} e={e} />)}
+        </>
+      )}
+
+      {aba === "agenda" && (
+        <>
+          <h2>Agenda</h2>
+
+          {proximoEvento && (
+            <div style={{ ...estilos.card, background: "#2a1550", border: "2px solid #6c2bd9" }}>
+              <h3>🔥 Próximo evento</h3>
+              <strong>{proximoEvento.nome}</strong>
+              <br />
+              Serviço: {proximoEvento.tipoEvento}
+              <br />
+              Data: {dataBR(proximoEvento.data)}
+              <br />
+              Horário: {proximoEvento.horaInicio || "Não informado"} às {proximoEvento.horaFim || "Não informado"}
+              <br />
+              Duração: {calcularDuracao(proximoEvento.horaInicio, proximoEvento.horaFim)}
+              <br />
+              Cidade: {proximoEvento.cidade || "Não informado"}
+              <br />
+              Valor: {moeda(Number(proximoEvento.valor || 0))}
+              <br />
+              <span style={{ color: corStatus(proximoEvento), fontWeight: "bold" }}>Status: {textoStatus(proximoEvento)}</span>
+              <br />
+              <button style={estilos.botao} onClick={() => abrirWhatsApp(proximoEvento)}>WhatsApp</button>
+              <button style={estilos.botao} onClick={() => abrirGoogleAgenda(proximoEvento)}>📅 Google Agenda</button>
+              <button
+                style={estilos.botao}
+                onClick={() => {
+                  setBusca(proximoEvento.nome);
+                  setAba("eventos");
+                }}
+              >
+                Abrir evento
+              </button>
+            </div>
+          )}
+
+          <div style={estilos.card}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <button style={estilos.botao} onClick={() => mudarMes(-1)}>◀</button>
+              <h3 style={{ textTransform: "capitalize", textAlign: "center" }}>📅 {nomeMes}</h3>
+              <button style={estilos.botao} onClick={() => mudarMes(1)}>▶</button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, textAlign: "center", marginBottom: 8 }}>
+              {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => (
+                <strong key={d} style={{ color: "#c4b5fd" }}>{d}</strong>
+              ))}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+              {diasCalendario.map((dia, index) => {
+                const qtd = dia ? eventosDoMes.filter((e) => Number(e.data.split("-")[2]) === dia).length : 0;
+                return (
+                  <button
+                    key={`${dia}-${index}`}
+                    disabled={!dia}
+                    onClick={() => setDiaSelecionado(dia)}
+                    style={{
+                      minHeight: 54,
+                      borderRadius: 8,
+                      border: diaSelecionado === dia ? "2px solid white" : "1px solid #374151",
+                      background: qtd > 0 ? "#6c2bd9" : "#111827",
+                      color: dia ? "white" : "transparent",
+                      cursor: dia ? "pointer" : "default"
+                    }}
+                  >
+                    <strong>{dia || "."}</strong>
+                    {qtd > 0 && <div style={{ fontSize: 12 }}>{qtd} evento(s)</div>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {diaSelecionado && (
+            <div style={estilos.card}>
+              <h3>Eventos do dia {String(diaSelecionado).padStart(2, "0")}</h3>
+              {eventosDoDiaSelecionado.length === 0 && <p>Nenhum evento nesse dia.</p>}
+              {eventosDoDiaSelecionado.map((e) => <CardEvento key={e.id} e={e} />)}
+            </div>
+          )}
+
+          <h3>Próximos eventos</h3>
+          {eventosFuturos.length === 0 && <p>Nenhum evento futuro cadastrado.</p>}
+          {eventosFuturos.map((e) => <CardEvento key={e.id} e={e} />)}
+        </>
+      )}
+
+      {aba === "dashboard" && (
+        <>
+          <h2>Dashboard</h2>
+          <div style={estilos.gridResumo}>
+            <div style={estilos.cardResumo}><strong>📅 Eventos cadastrados</strong><h2>{eventos.length}</h2></div>
+            <div style={estilos.cardResumo}><strong>🔥 Próximos</strong><h2>{eventosFuturos.length}</h2></div>
+            <div style={estilos.cardResumo}><strong>🟡 Pré-reservas</strong><h2>{eventosPreReserva}</h2></div>
+            <div style={estilos.cardResumo}><strong>🟢 Pagos</strong><h2>{eventosPagos}</h2></div>
+            <div style={estilos.cardResumo}><strong>🔴 Pendentes</strong><h2>{eventosPendentes}</h2></div>
+            <div style={estilos.cardResumo}><strong>💰 Mês atual</strong><h2>{moeda(saldoMes)}</h2></div>
+          </div>
+
+          <div style={estilos.card}>
+            <h3>🔔 Eventos nos próximos 7 dias</h3>
+            {lembretes.length === 0 && <p>Nenhum evento nos próximos 7 dias.</p>}
+            {lembretes.map((e) => (
+              <div key={e.id} style={{ borderBottom: "1px solid #374151", padding: "8px 0" }}>
+                <strong>{e.nome}</strong> - {dataBR(e.data)} - {e.horaInicio || "Horário não informado"} - <span style={{ color: corStatus(e) }}>{textoStatus(e)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {aba === "financeiro" && (
+        <>
+          <h2>Caixa Financeiro</h2>
+
+          <div style={estilos.gridResumo}>
+            <div style={estilos.cardResumo}><strong>💰 Hoje</strong><h2>{moeda(saldoHoje)}</h2></div>
+            <div style={estilos.cardResumo}><strong>📅 Últimos 15 dias</strong><h2>{moeda(saldo15Dias)}</h2></div>
+            <div style={estilos.cardResumo}><strong>📆 Mês</strong><h2>{moeda(saldoMes)}</h2></div>
+            <div style={estilos.cardResumo}><strong>💵 Recebido total</strong><h2>{moeda(totalRecebido)}</h2></div>
+            <div style={estilos.cardResumo}><strong>🧾 Entradas recebidas</strong><h2>{moeda(totalEntradas)}</h2></div>
+            <div style={estilos.cardResumo}><strong>⚠️ Pendente</strong><h2>{moeda(totalPendente)}</h2></div>
+          </div>
+
+          <div style={estilos.card}>
+            <h3>📊 Gráfico financeiro</h3>
+            {[
+              ["Recebido", totalRecebido, "#22c55e"],
+              ["Pendente", totalPendente, "#ef4444"],
+              ["Faturamento total", faturamentoTotal, "#6c2bd9"]
+            ].map(([nome, valor, cor]) => (
+              <div key={nome} style={{ marginBottom: 12 }}>
+                <p>{nome}</p>
+                <div style={{ width: "100%", background: "#222", borderRadius: 8, overflow: "hidden" }}>
+                  <div
+                    style={{
+                      width: faturamentoTotal > 0 ? `${Math.max((valor / faturamentoTotal) * 100, valor > 0 ? 8 : 0)}%` : "0%",
+                      background: cor,
+                      padding: 8,
+                      color: "white",
+                      fontWeight: "bold",
+                      whiteSpace: "nowrap"
+                    }}
+                  >
+                    {moeda(valor)}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={estilos.card}>
+            <h3>📄 Histórico financeiro</h3>
+            {agendaOrdenada.length === 0 && <p>Nenhum lançamento.</p>}
+            {agendaOrdenada.map((e) => (
+              <div key={e.id} style={{ borderBottom: "1px solid #374151", padding: "10px 0" }}>
+                <strong>{dataCurtaBR(e.data)} - {e.nome}</strong>
+                <br />
+                Total: {moeda(e.valor)} | Entrada: {moeda(e.entrada)} | Pendente: {e.quitado ? moeda(0) : moeda(Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0))}
+                <br />
+                <span style={{ color: corStatus(e), fontWeight: "bold" }}>{textoStatus(e)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {reciboAberto && (
+        <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }}>
+          <div style={{ background: "#222", padding: 20, borderRadius: 8, width: 340, border: "1px solid #555" }}>
+            <h2>Gerar Recibo</h2>
+            <p><strong>{reciboAberto.nome}</strong></p>
+
+            <label>Tipo do recibo:</label>
+            <select value={tipoRecibo} onChange={(e) => setTipoRecibo(e.target.value)} style={{ ...estilos.input, background: "white", color: "black" }}>
+              <option value="sinal">Sinal / Entrada</option>
+              <option value="total">Valor total</option>
+            </select>
+
+            <label>Forma de pagamento:</label>
+            <select value={pagamentoRecibo} onChange={(e) => setPagamentoRecibo(e.target.value)} style={{ ...estilos.input, background: "white", color: "black" }}>
+              <option value="">Selecione a forma de pagamento</option>
+              <option value="Pix">Pix</option>
+              <option value="Dinheiro">Dinheiro</option>
+              <option value="Cartão de crédito">Cartão de crédito</option>
+              <option value="Cartão de débito">Cartão de débito</option>
+              <option value="Valor total à vista">Valor total à vista</option>
+              <option value="Transferência bancária">Transferência bancária</option>
+            </select>
+
+            <button style={estilos.botaoRoxo} onClick={gerarRecibo}>Gerar PDF</button>
+            <button style={estilos.botao} onClick={() => setReciboAberto(null)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

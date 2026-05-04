@@ -1,0 +1,1062 @@
+import { useEffect, useState } from "react";
+import jsPDF from "jspdf";
+import assinatura from "./img/assinatura.png";
+
+export default function App() {
+  const [eventos, setEventos] = useState(() => {
+  const salvos = localStorage.getItem("eventos");
+  return salvos ? JSON.parse(salvos) : [];
+});
+const [editandoId, setEditandoId] = useState(null);
+  const [busca, setBusca] = useState("");
+  const [aba, setAba] = useState("cadastro");
+  const [aberto, setAberto] = useState(null);
+  const [reciboAberto, setReciboAberto] = useState(null);
+const [tipoRecibo, setTipoRecibo] = useState("sinal");
+const [pagamentoRecibo, setPagamentoRecibo] = useState("Pix");
+useEffect(() => {
+  localStorage.setItem("eventos", JSON.stringify(eventos));
+}, [eventos]);
+  const [form, setForm] = useState({
+    nome: "",
+    cpf: "",
+    whatsapp: "",
+    tipoEvento: "",
+    data: "",
+    horaInicio: "",
+    horaFim: "",
+    endereco: "",
+    cidade: "",
+    pacote: "",
+    valor: "",
+    entrada: "",
+    obs: "",
+    status: "pre",
+formaPagamento: "",
+executado: false,
+quitado: false,
+  });
+
+  const moeda = (valor) =>
+    Number(valor || 0).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL"
+    });
+
+  const dataBR = (data) => {
+  if (!data) return "Não informado";
+
+  const [ano, mes, dia] = data.split("-");
+  const dataObj = new Date(Number(ano), Number(mes) - 1, Number(dia));
+
+  const dias = [
+    "domingo",
+    "segunda-feira",
+    "terça-feira",
+    "quarta-feira",
+    "quinta-feira",
+    "sexta-feira",
+    "sábado"
+  ];
+
+  return `${dias[dataObj.getDay()]} - ${dia}/${mes}/${ano}`;
+};
+
+  const limpar = () => {
+    setForm({
+      nome: "",
+      cpf: "",
+      whatsapp: "",
+      tipoEvento: "",
+      data: "",
+      horaInicio: "",
+      horaFim: "",
+      endereco: "",
+      cidade: "",
+      pacote: "",
+      valor: "",
+      entrada: "",
+      obs: "",
+      status: "pre"
+    });
+  };
+
+  const salvar = () => {
+  if (!form.nome || !form.whatsapp || !form.tipoEvento || !form.data) {
+    alert("Preencha pelo menos nome, WhatsApp, tipo de evento e data.");
+    return;
+  }
+
+  if (editandoId) {
+    const atualizados = eventos.map((e) =>
+      e.id === editandoId
+        ? {
+            ...form,
+            id: editandoId,
+            dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR")
+          }
+        : e
+    );
+
+    setEventos(atualizados);
+    setEditandoId(null);
+  } else {
+    const novo = {
+      ...form,
+      id: Date.now(),
+      dataCadastro: new Date().toLocaleString("pt-BR")
+    };
+
+    setEventos([novo, ...eventos]);
+  }
+
+  limpar();
+  setAba("eventos");
+};
+  
+    const gerarContrato = (e) => {
+    const doc = new jsPDF();
+  
+// 🔵 TARJA AZUL
+doc.setFillColor(30, 60, 150);
+doc.rect(0, 0, 210, 30, "F");doc.rect(0, 15, 210, 35, "F");
+
+// 🔤 TEXTO NA TARJA
+doc.setTextColor(255, 255, 255);
+doc.setFont("helvetica", "bold");
+doc.setFontSize(16);
+doc.text("CONTRATO DE PRESTAÇÃO DE SERVIÇO", 105, 30, { align: "center" });
+
+doc.setFont("helvetica", "normal");
+doc.setFontSize(12);
+doc.text("@JP Eventos Fortaleza | @Vdj JeanMix", 105, 38, { align: "center" });
+doc.text("WhatsApp: (85) 98708-3412", 105, 45, { align: "center" });
+
+// 🔙 VOLTA PRA PRETO
+doc.setTextColor(0, 0, 0);
+
+// 💰 VALORES
+const total = Number(e.valor || 0);
+const entrada = Number(e.entrada || 0);
+const pendente =
+  tipoRecibo === "total"
+    ? 0
+    : Math.max(total - entrada, 0);
+// 📍 INÍCIO DO TEXTO
+let y = 70;
+const linhas = [
+  `Nome: ${e.nome}`,
+  `CPF: ${e.cpf || "Não informado"}`,
+  `WhatsApp: ${e.whatsapp}`,
+  `Tipo do evento: ${e.tipoEvento}`,
+  `Data do evento: ${dataBR(e.data)}`,
+  `Horário: ${e.horaInicio || "Não informado"} às ${e.horaFim || "Não informado"}`,
+
+  `Endereço: ${e.endereco || "Não informado"}`,
+  `Cidade: ${e.cidade || "Não informado"}`,
+  `Pacote: ${e.pacote || "Não informado"}`,
+  `Observações: ${e.obs || "Nenhuma"}`, // 👈 AQUI
+
+  `Valor total: ${moeda(total)}`,
+`Entrada / sinal: ${moeda(entrada)}`,
+`Forma da entrada: ${e.formaEntrada || "Não informada"}`,
+`Forma de pagamento: ${e.formaPagamento || "Não informada"}`,
+...(e.parcelas ? [`Parcelas: ${e.parcelas}`] : []),
+`Pendente: ${moeda(pendente)}`
+];
+
+    linhas.forEach((linha) => {
+      doc.text(linha, 14, y);
+      y += 7;
+    });
+
+    y += 8;
+
+    const textoCancelamento =
+      `Em caso de desistência, cancelamento do evento ou quebra do acordo por parte do contratante, ` +
+      `o valor já pago a título de entrada/sinal, correspondente a ${moeda(entrada)}, não será devolvido, ` +
+      `por se tratar da reserva da data e bloqueio da agenda do contratado.`;
+
+    const textoQuebrado = doc.splitTextToSize(textoCancelamento, 180);
+    doc.text(textoQuebrado, 14, y);
+    y += textoQuebrado.length * 7 + 10;
+
+    if (e.obs) {
+      doc.setFont("helvetica", "bold");
+      
+    }
+
+    if (true) {
+      if (y > 220) {
+        doc.addPage();
+        y = 40;
+      }
+
+      doc.addImage(assinatura, "PNG", 20, y, 55, 25);
+      y += 28;
+
+      doc.line(14, y, 95, y);
+      y += 7;
+
+      doc.text("Jean Carlos da Silva", 54, y, { align: "center" });
+      y += 6;
+      doc.text("Assinatura / responsável", 54, y, { align: "center" });
+    }
+
+    doc.save(`contrato_${e.nome}.pdf`);
+  };
+
+  const textoCompleto = (e) => {
+    const total = Number(e.valor || 0);
+    const entrada = Number(e.entrada || 0);
+    const pendente =
+  tipoRecibo === "total"
+    ? 0
+    : Math.max(total - entrada, 0);
+
+    return [
+      `Nome: ${e.nome}`,
+      `CPF: ${e.cpf || "Não informado"}`,
+      `WhatsApp: ${e.whatsapp}`,
+      `Tipo do evento: ${e.tipoEvento}`,
+      `Data do evento: ${dataBR(e.data)}`,
+      `Horário: ${e.horaInicio || "Não informado"} às ${e.horaFim || "Não informado"}`,
+      `Endereço: ${e.endereco || "Não informado"}`,
+      `Cidade: ${e.cidade || "Não informado"}`,
+      `Pacote: ${e.pacote || "Não informado"}`,
+      `Valor total: ${moeda(total)}`,
+      `Entrada / sinal: ${moeda(entrada)}`,
+      `Pendente: ${moeda(pendente)}`,
+      `Observações: ${e.obs || "Nenhuma"}`,
+      `Data do cadastro: ${e.dataCadastro || "Não informado"}`
+    ].join("\n");
+  };
+const excluirEvento = (id) => {
+  if (confirm("Tem certeza que deseja excluir este cadastro?")) {
+    setEventos(eventos.filter((e) => e.id !== id));
+  }
+};
+const toggleExecutado = (id) => {
+  const novos = eventos.map((e) =>
+    e.id === id ? { ...e, executado: !e.executado } : e
+  );
+  setEventos(novos);
+};
+const abrirRecibo = (evento) => {
+  setReciboAberto(evento);
+  setTipoRecibo("sinal");
+  setPagamentoRecibo(evento.formaPagamento || "Pix");
+};
+const gerarRecibo = () => {
+  if (!reciboAberto) return;
+
+  const e = reciboAberto;
+  const doc = new jsPDF();
+
+  const total = Number(e.valor || 0);
+  const entrada = Number(e.entrada || 0);
+  const pendente =
+  tipoRecibo === "total"
+    ? 0
+    : Math.max(total - entrada, 0);
+
+  const valorRecibo = tipoRecibo === "sinal" ? entrada : total;
+  const titulo =
+    tipoRecibo === "sinal"
+      ? "RECIBO DE SINAL / ENTRADA"
+      : "RECIBO DE PAGAMENTO TOTAL";
+
+  doc.setFillColor(30, 60, 150);
+  doc.rect(0, 0, 210, 50, "F");
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.text(titulo, 105, 22, { align: "center" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(12);
+  doc.text("@JP Eventos Fortaleza | @Vdj JeanMix", 105, 32, { align: "center" });
+  doc.text("WhatsApp: (85) 98708-3412", 105, 40, { align: "center" });
+
+  doc.setTextColor(0, 0, 0);
+
+  let y = 70;
+
+  const linhas = [
+    `Recebi de: ${e.nome}`,
+    `CPF: ${e.cpf || "Não informado"}`,
+    `WhatsApp: ${e.whatsapp}`,
+    `Tipo do evento: ${e.tipoEvento}`,
+    `Data do evento: ${dataBR(e.data)}`,
+    `Horário: ${e.horaInicio || "Não informado"} às ${e.horaFim || "Não informado"}`,
+    `Endereço: ${e.endereco || "Não informado"}`,
+    `Cidade: ${e.cidade || "Não informado"}`,
+    `Pacote: ${e.pacote === "Outro" ? e.pacotePersonalizado : e.pacote || "Não informado"}`,
+    `Tipo do recibo: ${tipoRecibo === "sinal" ? "Sinal / Entrada" : "Pagamento total"}`,
+    `Forma de pagamento: ${pagamentoRecibo}`,
+    `Valor deste recibo: ${moeda(valorRecibo)}`,
+    `Valor total do evento: ${moeda(total)}`,
+    `Entrada / sinal: ${moeda(entrada)}`,
+    `Pendente: ${moeda(pendente)}`
+  ];
+
+  linhas.forEach((linha) => {
+    doc.text(linha, 14, y);
+    y += 7;
+  });
+
+  y += 10;
+
+  const texto =
+    tipoRecibo === "sinal"
+      ? `Declaro que recebi o valor de ${moeda(valorRecibo)} referente ao sinal/entrada para reserva da data do evento acima descrito.`
+      : `Declaro que recebi o valor total de ${moeda(valorRecibo)} referente à prestação de serviço para o evento acima descrito.`;
+
+  const textoQuebrado = doc.splitTextToSize(texto, 180);
+  doc.text(textoQuebrado, 14, y);
+  y += textoQuebrado.length * 7 + 15;
+
+  doc.text(`Fortaleza/CE, ${new Date().toLocaleDateString("pt-BR")}`, 14, y);
+  y += 15;
+
+  doc.addImage(assinatura, "PNG", 20, y, 55, 25);
+  y += 28;
+
+  doc.line(14, y, 95, y);
+  y += 7;
+
+  doc.text("Jean Carlos da Silva", 54, y, { align: "center" });
+  y += 6;
+  doc.text("Assinatura / responsável", 54, y, { align: "center" });
+
+  doc.save(`recibo_${tipoRecibo}_${e.nome}.pdf`);
+
+if (tipoRecibo === "total") {
+  const atualizados = eventos.map((ev) =>
+    ev.id === e.id ? { ...ev, quitado: true } : ev
+  );
+
+  setEventos(atualizados);
+}
+
+setReciboAberto(null);
+  setReciboAberto(null);
+};
+const calcularDuracao = (inicio, fim) => {
+  if (!inicio || !fim) return "Não informado";
+
+  const [h1, m1] = inicio.split(":").map(Number);
+  const [h2, m2] = fim.split(":").map(Number);
+
+  const minutosInicio = h1 * 60 + m1;
+  const minutosFim = h2 * 60 + m2;
+
+  let diferenca = minutosFim - minutosInicio;
+
+  if (diferenca < 0) {
+    diferenca += 24 * 60;
+  }
+
+  const horas = Math.floor(diferenca / 60);
+  const minutos = diferenca % 60;
+
+  if (minutos === 0) return `${horas} horas`;
+
+  return `${horas}h ${minutos}min`;
+};
+
+const agendaOrdenada = [...eventos].sort((a, b) => {
+  const dataA = `${a.data} ${a.horaInicio || "00:00"}`;
+  const dataB = `${b.data} ${b.horaInicio || "00:00"}`;
+  return new Date(dataA) - new Date(dataB);
+});
+
+const hojeAgenda = new Date();
+hojeAgenda.setHours(0, 0, 0, 0);
+
+const eventosFuturos = agendaOrdenada.filter((e) => {
+  if (!e.data) return false;
+
+  const [ano, mes, dia] = e.data.split("-");
+  const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
+
+  return dataEvento >= hojeAgenda;
+});
+
+const proximoEvento = eventosFuturos[0];
+// 💰 TOTAL RECEBIDO (eventos pagos)
+const totalRecebido = eventos
+  .filter((e) => e.quitado)
+  .reduce((acc, e) => acc + Number(e.valor || 0), 0);
+
+// 💰 TOTAL PENDENTE
+const totalPendente = eventos
+  .filter((e) => !e.quitado)
+  .reduce(
+    (acc, e) =>
+      acc + Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0),
+    0
+  );
+
+// 📊 EVENTOS PAGOS
+const eventosPagos = eventos.filter((e) => e.quitado).length;
+
+// 📊 EVENTOS PENDENTES
+const eventosPendentes = eventos.filter((e) => !e.quitado).length;
+
+// 💰 FATURAMENTO TOTAL
+const faturamentoTotal = eventos.reduce(
+  (acc, e) => acc + Number(e.valor || 0),
+  0
+);
+const ehPreCadastro = (e) => {
+  return !e.valor || Number(e.valor || 0) === 0;
+};
+  const listaFiltrada = eventos.filter((e) =>
+  `${e.nome} ${e.cpf} ${e.whatsapp} ${e.tipoEvento} ${e.data} ${e.pacote} ${e.pacotePersonalizado || ""} ${e.obs || ""} ${e.endereco || ""}`
+    .toLowerCase()
+    .includes(busca.toLowerCase())
+);
+const abrirWhatsApp = (numero) => {
+  if (!numero) {
+    alert("WhatsApp não informado.");
+    return;
+  }
+
+  const numeroLimpo = numero.replace(/\D/g, "");
+  window.open(`https://wa.me/55${numeroLimpo}`, "_blank");
+};
+
+const abrirGoogleAgenda = (evento) => {
+  if (!evento.data) {
+    alert("Data não informada.");
+    return;
+  }
+
+  const data = evento.data.replaceAll("-", "");
+  const horaInicio = (evento.horaInicio || "12:00").replace("h", ":").replace(/\D/g, "").padEnd(4, "0");
+  const horaFim = (evento.horaFim || "13:00").replace("h", ":").replace(/\D/g, "").padEnd(4, "0");
+
+  const dataInicio = `${data}T${horaInicio}00`;
+  const dataFim = `${data}T${horaFim}00`;
+
+  const titulo = `${evento.nome} - ${evento.tipoEvento}`;
+  const detalhes = `Cliente: ${evento.nome}`;
+
+  const url =
+    "https://www.google.com/calendar/render?action=TEMPLATE" +
+    `&text=${encodeURIComponent(titulo)}` +
+    `&dates=${dataInicio}/${dataFim}` +
+    `&details=${encodeURIComponent(detalhes)}` +
+    `&location=${encodeURIComponent(evento.endereco || "")}`;
+
+  window.open(url, "_blank");
+};
+
+// 📅 HOJE
+const hoje = new Date();
+hoje.setHours(0, 0, 0, 0);
+
+// 💰 SALDO HOJE
+const saldoHoje = eventos
+  .filter((e) => {
+    if (!e.data) return false;
+
+    const [ano, mes, dia] = e.data.split("-");
+    const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
+
+    return dataEvento.getTime() === hoje.getTime() && e.quitado;
+  })
+  .reduce((acc, e) => acc + Number(e.valor || 0), 0);
+
+// 💰 ÚLTIMOS 15 DIAS
+const quinzeDiasAtras = new Date();
+quinzeDiasAtras.setDate(hoje.getDate() - 15);
+const saldo15Dias = eventos
+  .filter((e) => {
+    if (!e.data) return false;
+
+    const [ano, mes, dia] = e.data.split("-");
+    const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
+
+    return dataEvento >= quinzeDiasAtras && dataEvento <= hoje && e.quitado;
+  })
+  .reduce((acc, e) => acc + Number(e.valor || 0), 0);
+const mesAtual = hoje.getMonth();
+const anoAtual = hoje.getFullYear();
+const saldoMes = eventos
+  .filter((e) => {
+    if (!e.data) return false;
+
+    const [ano, mes, dia] = e.data.split("-");
+    const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
+
+    return (
+      dataEvento.getMonth() === mesAtual &&
+      dataEvento.getFullYear() === anoAtual &&
+      e.quitado
+    );
+  })
+  .reduce((acc, e) => acc + Number(e.valor || 0), 0);
+
+const editarEvento = (evento) => {
+  setForm(evento);
+  setEditandoId(evento.id);
+  setAba("cadastro");
+};
+
+return (
+  <div style={{ padding: 20 }}>
+    <h1>JP Eventos</h1>
+
+    <input
+      placeholder="Buscar cliente..."
+      value={busca}
+      onChange={(e) => setBusca(e.target.value)}
+      style={{ width: "100%", marginBottom: 10 }}
+    />
+    
+
+    <div style={{ marginBottom: 20 }}>
+      <button
+        onClick={() => setAba(aba === "cadastro" ? "" : "cadastro")}
+        style={{
+          background: aba === "cadastro" ? "#6c2bd9" : "",
+          color: "white"
+        }}
+      >
+        Cadastro
+      </button>
+
+      <button
+        onClick={() => setAba(aba === "eventos" ? "" : "eventos")}
+        style={{
+          background: aba === "eventos" ? "#6c2bd9" : "",
+          color: "white"
+        }}
+      >
+        Eventos
+      </button>
+
+      <button
+        onClick={() => setAba(aba === "agenda" ? "" : "agenda")}
+        style={{
+          background: aba === "agenda" ? "#6c2bd9" : "",
+          color: "white"
+        }}
+      >
+        Agenda
+      </button>
+
+      <button
+        onClick={() => setAba(aba === "financeiro" ? "" : "financeiro")}
+        style={{
+          background: aba === "financeiro" ? "#6c2bd9" : "",
+          color: "white"
+        }}
+      >
+        Financeiro
+      </button>
+    </div>
+
+      {aba === "cadastro" && (
+        <>
+          <h2>Cadastro</h2>
+
+          <input placeholder="Nome" value={form.nome} onChange={(e)=>setForm({...form, nome:e.target.value})}/>
+<input placeholder="CPF" value={form.cpf} onChange={(e)=>setForm({...form, cpf:e.target.value})}/>
+<input placeholder="WhatsApp" value={form.whatsapp} onChange={(e)=>setForm({...form, whatsapp:e.target.value})}/>
+<input placeholder="Tipo Evento" value={form.tipoEvento} onChange={(e)=>setForm({...form, tipoEvento:e.target.value})}/>
+<input type="date" value={form.data} onChange={(e)=>setForm({...form, data:e.target.value})}/>
+
+<input placeholder="Hora início" value={form.horaInicio} onChange={(e)=>setForm({...form, horaInicio:e.target.value})}/>
+<input placeholder="Hora fim" value={form.horaFim} onChange={(e)=>setForm({...form, horaFim:e.target.value})}/>
+<input placeholder="Endereço" value={form.endereco} onChange={(e)=>setForm({...form, endereco:e.target.value})}/>
+<input placeholder="Cidade" value={form.cidade} onChange={(e)=>setForm({...form, cidade:e.target.value})}/>
+
+<select
+  value={form.pacote}
+  onChange={(e)=>setForm({...form, pacote:e.target.value})}
+>
+  <option value="">Selecione o pacote</option>
+  <option value="Pacote 01 - Dj + Som">Pacote 01 - Dj + Som</option>
+  <option value="Pacote 02 - Dj + Som + Iluminação">Pacote 02 - Dj + Som + Iluminação</option>
+  <option value="Pacote 03 - Completo">Pacote 03 - Completo</option>
+  <option value="Outro">Outro</option>
+</select>
+
+{form.pacote === "Outro" && (
+  <input
+    placeholder="Digite o pacote personalizado"
+    value={form.pacotePersonalizado || ""}
+    onChange={(e)=>setForm({...form, pacotePersonalizado:e.target.value})}
+  />
+)}
+
+<input placeholder="Valor total" value={form.valor} onChange={(e)=>setForm({...form, valor:e.target.value})}/>
+<input placeholder="Entrada" value={form.entrada} onChange={(e)=>setForm({...form, entrada:e.target.value})}/>
+<select
+  value={form.formaEntrada || ""}
+  onChange={(e) => setForm({ ...form, formaEntrada: e.target.value })}
+  style={{
+    width: "100%",
+    marginBottom: 10,
+    background: "#111827",
+    color: "white",
+    padding: 12,
+    borderRadius: 8,
+    border: "1px solid #6c2bd9"
+  }}
+>
+  <option value="">Forma da entrada (sinal)</option>
+  <option value="Pix">Pix</option>
+  <option value="Dinheiro">Dinheiro</option>
+  <option value="Cartão de débito">Cartão de débito</option>
+  <option value="Cartão de crédito">Cartão de crédito</option>
+  <option value="Transferência bancária">Transferência bancária</option>
+</select>
+<select
+  value={form.formaPagamento || ""}
+  onChange={(e) => setForm({ ...form, formaPagamento: e.target.value })}
+  style={{
+    width: "100%",
+    marginBottom: 10,
+    background: "#111827",
+    color: "white",
+    padding: 12,
+    borderRadius: 8,
+    border: "1px solid #6c2bd9"
+  }}
+>
+  <option value="">Selecione a forma de pagamento</option>
+  <option value="Entrada / sinal">Entrada / sinal</option>
+  <option value="Valor total">Valor total</option>
+  <option value="Pix">Pix</option>
+  <option value="Dinheiro">Dinheiro</option>
+  <option value="Cartão de débito">Cartão de débito</option>
+  <option value="Cartão de crédito">Cartão de crédito</option>
+  <option value="Valor total à vista">Valor total à vista</option>
+  <option value="Transferência bancária">Transferência bancária</option>
+</select>
+{form.formaPagamento === "Cartão de crédito" && (
+  <input
+    placeholder="Parcelas (ex: 2x, 3x...)"
+    value={form.parcelas || ""}
+    onChange={(e) => setForm({ ...form, parcelas: e.target.value })}
+  />
+)}
+<textarea placeholder="Observações" value={form.obs} onChange={(e)=>setForm({...form, obs:e.target.value})}/>
+
+<button onClick={salvar}>Salvar</button>
+        </>
+      )}
+
+      {aba === "eventos" && (
+        <>
+          <h2>Eventos</h2>
+
+          {listaFiltrada.map((e) => (
+            <div key={e.id} style={{ border: "1px solid #444", marginBottom: 10, padding: 10 }}>
+              <strong style={{ color: e.executado ? "limegreen" : "white" }}>
+  {e.nome}
+</strong><br/>
+Tipo do evento: {e.tipoEvento}<br/>
+Horário: {e.horaInicio || "Não informado"} às {e.horaFim || "Não informado"}<br/>
+<span style={{ color: "deepskyblue" }}>
+  Data do evento: {dataBR(e.data)}
+</span>
+<br/>
+WhatsApp: {e.whatsapp}<br/>
+Pacote: {e.pacote === "Outro" ? e.pacotePersonalizado : (e.pacote || "Não informado")}<br/>
+{e.obs && (
+  <>
+    Observações: {e.obs}<br/>
+  </>
+)}
+Endereço: {e.endereco || "Não informado"}<br/>
+<span style={{ color: "deepskyblue" }}>
+  Valor total: {moeda(Number(e.valor || 0))}<br />
+Forma da entrada: {e.formaEntrada || "Não informada"}<br />
+  Forma de pagamento: {e.formaPagamento || "Não informado"}<br />
+
+{e.parcelas && (
+  <>Parcelas: {e.parcelas}<br /></>
+)}
+</span>
+<br/>
+
+<span style={{ color: "yellow" }}>
+  Entrada / sinal: {moeda(Number(e.entrada || 0))}
+</span>
+<br/>
+
+<span style={{ color: ehPreCadastro(e) ? "orange" : e.quitado ? "limegreen" : "red"}}>
+  Pendente: {
+    e.quitado
+      ? moeda(0)
+      : moeda(Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0))
+  }
+  
+</span>
+<br/>
+<span style={{
+  color: ehPreCadastro(e) ? "orange" : e.quitado ? "limegreen" : "red",
+  fontWeight: "bold"
+}}>
+  Status: {
+    ehPreCadastro(e)
+      ? "PRÉ-CADASTRO / DATA RESERVADA"
+      : e.quitado
+        ? "PAGO"
+        : "PENDENTE"
+  }
+</span>
+<br/><button
+  onClick={() => {
+    const atualizados = eventos.map((ev) =>
+      ev.id === e.id ? { ...ev, quitado: false } : ev
+    );
+
+    setEventos(atualizados);
+  }}
+  
+>
+  Marcar como pendente
+</button>
+
+              <button onClick={() => gerarContrato(e)}>Contrato</button>
+              <button onClick={() => abrirRecibo(e)}>Recibo</button>
+              <button
+  onClick={() => {
+    navigator.clipboard.writeText(textoCompleto(e));
+    alert("Cadastro copiado!");
+  }}
+>
+  Copiar
+             </button><button onClick={() => editarEvento(e)}>
+  ✏️ Editar
+</button>
+              <button onClick={() => excluirEvento(e.id)}>Excluir</button>
+              <button onClick={() => toggleExecutado(e.id)}>
+  {e.executado ? "✔ Executado" : "Marcar como executado"}
+</button>
+            </div>
+          ))}
+        </>
+      )}
+      {aba === "agenda" && (
+  <>
+    <h2>Agenda</h2>
+
+    {proximoEvento && (
+  <div
+    onClick={() => {
+      setBusca(proximoEvento.nome);
+      setAba("eventos");
+    }}
+    style={{
+  border: "2px solid #6c2bd9",
+  background: "#2a1550",
+  padding: 12,
+  marginBottom: 15,
+  borderRadius: 8,
+  boxShadow: "0 0 10px rgba(108,43,217,0.5)"
+}}>
+        <h3 style={{ marginBottom: 10 }}>🔥 Próximo evento</h3>
+
+        <strong>{proximoEvento.nome}</strong><br />
+        Serviço: {proximoEvento.tipoEvento}<br />
+        Data: {dataBR(proximoEvento.data)}<br />
+        Horário: {proximoEvento.horaInicio || "Não informado"} às {proximoEvento.horaFim || "Não informado"}<br />
+        Duração: {calcularDuracao(proximoEvento.horaInicio, proximoEvento.horaFim)}<br />
+        Cidade: {proximoEvento.cidade || "Não informado"}<br />
+        Valor: {moeda(Number(proximoEvento.valor || 0))}<br />
+Forma da entrada: {proximoEvento.formaEntrada || "Não informada"}<br />
+Forma de pagamento: {proximoEvento.formaPagamento || "Não informado"}<br />
+
+{proximoEvento.parcelas && (
+  <>Parcelas: {proximoEvento.parcelas}<br /></>
+)}
+        <span style={{
+  color: ehPreCadastro(proximoEvento) ? "orange" : proximoEvento.quitado ? "limegreen" : "red",
+  fontWeight: "bold"
+}}>
+  Status: {
+    ehPreCadastro(proximoEvento)
+      ? "🟡 PRÉ-CADASTRO / DATA RESERVADA"
+      : proximoEvento.quitado
+        ? "🟢 PAGO"
+        : "🔴 PENDENTE"
+  }
+</span>
+
+<br />
+
+<button
+  onClick={(ev) => {
+    ev.stopPropagation();
+    abrirWhatsApp(proximoEvento.whatsapp);
+  }}
+>
+  WhatsApp
+</button>
+
+<button
+  onClick={() => {
+    setBusca(proximoEvento.nome);
+    setAba("eventos");
+  }}
+>
+  Abrir evento
+</button>
+<button
+  onClick={(ev) => {
+    ev.stopPropagation();
+    abrirGoogleAgenda(proximoEvento);
+  }}
+>
+  📅 Google Agenda
+</button>
+        
+      </div>
+    )}
+
+    <h3>Próximos eventos</h3>
+
+    {eventosFuturos.length === 0 && (
+      <p>Nenhum evento futuro cadastrado.</p>
+    )}
+
+    {eventosFuturos.map((e) => (
+  <div
+  key={e.id}
+  onClick={() => {
+    setBusca(e.nome);
+    setAba("eventos");
+  }}
+  style={{
+      border: "1px solid #6c2bd9",
+      background: ehPreCadastro(e)
+  ? "#3a2e00"
+  : e.quitado
+    ? "#0f2e1a"
+    : "#2e0f0f",
+      padding: 14,
+      marginBottom: 12,
+      borderRadius: 8,
+      cursor: "pointer",
+      boxShadow: "0 0 6px rgba(108,43,217,0.3)"
+    }}
+  >
+        <strong>{dataBR(e.data)}</strong><br />
+        Horário: {e.horaInicio || "Não informado"} às {e.horaFim || "Não informado"}<br />
+        Duração: {calcularDuracao(e.horaInicio, e.horaFim)}<br />
+        Cliente: {e.nome}<br />
+        Serviço: {e.tipoEvento}<br />
+        Cidade: {e.cidade || "Não informado"}<br />
+
+        <span style={{ color: e.quitado ? "limegreen" : "red" }}>
+          Status: {
+  ehPreCadastro(e)
+    ? "PRÉ-CADASTRO / DATA RESERVADA"
+    : e.quitado
+      ? "PAGO"
+      : "PENDENTE"
+}
+        </span>
+        <br />
+        
+<button
+  onClick={(ev) => {
+    ev.stopPropagation();
+    abrirWhatsApp(e.whatsapp);
+  }}
+>
+  WhatsApp
+</button>
+
+<button
+  onClick={() => {
+    setBusca(e.nome);
+    setAba("eventos");
+  }}
+>
+  Abrir evento
+</button>
+<button
+  onClick={(ev) => {
+    ev.stopPropagation();
+    abrirGoogleAgenda(e);
+  }}
+>
+  📅 Google Agenda
+</button>
+      </div>
+    ))}
+  </>
+)}
+{aba === "financeiro" && (
+  <>
+    <h2>Caixa Financeiro</h2>
+
+    <div style={{
+  border: "2px solid #6c2bd9",
+  background: "#1a0f2e",
+  padding: 18,
+  marginBottom: 20,
+  borderRadius: 10,
+  boxShadow: "0 0 12px rgba(108,43,217,0.4)"
+}}>
+      <h3>Resumo geral</h3>
+<p><strong>💰 Hoje:</strong> {moeda(saldoHoje)}</p>
+<p><strong>📅 15 dias:</strong> {moeda(saldo15Dias)}</p>
+<p><strong>📆 Mês:</strong> {moeda(saldoMes)}</p>
+<br />
+<hr style={{ borderColor: "#6c2bd9", opacity: 0.3 }} />
+<br />
+
+
+<p><strong>💵 Recebido:</strong> {moeda(totalRecebido)}</p>
+<p><strong>⚠️ Pendente:</strong> {moeda(totalPendente)}</p>
+
+<br />
+<br />
+
+<h4>📈 Movimentação</h4>
+
+<p><strong>📊 Faturamento:</strong> {moeda(faturamentoTotal)}</p>
+<p><strong>✔ Pagos:</strong> {eventosPagos}</p>
+<p><strong>⏳ Pendentes:</strong> {eventosPendentes}</p>
+<br />
+<hr style={{ borderColor: "#6c2bd9", opacity: 0.3 }} />
+<br />
+
+<h4>📊 Gráfico financeiro</h4>
+
+<div style={{ marginTop: 10 }}>
+  <p>Recebido</p>
+  <div style={{
+    width: "100%",
+    background: "#222",
+    borderRadius: 8,
+    overflow: "hidden",
+    marginBottom: 10
+  }}>
+    <div style={{
+      width: faturamentoTotal > 0 ? `${(totalRecebido / faturamentoTotal) * 100}%` : "0%",
+      background: "#22c55e",
+      padding: 8,
+      color: "white",
+      fontWeight: "bold"
+    }}>
+      {moeda(totalRecebido)}
+    </div>
+  </div>
+
+  <p>Pendente</p>
+  <div style={{
+    width: "100%",
+    background: "#222",
+    borderRadius: 8,
+    overflow: "hidden",
+    marginBottom: 10
+  }}>
+    <div style={{
+      width: faturamentoTotal > 0 
+  ? `${Math.max((totalPendente / faturamentoTotal) * 100, 5)}%` 
+  : "0%",
+      background: "#ef4444",
+      padding: 8,
+      color: "white",
+      fontWeight: "bold"
+      
+    }}>
+      {moeda(totalPendente)}
+    </div>
+  </div>
+
+  <p>Faturamento total</p>
+  <div style={{
+    width: "100%",
+    background: "#222",
+    borderRadius: 8,
+    overflow: "hidden"
+  }}>
+    <div style={{
+      width: "100%",
+      background: "#6c2bd9",
+      padding: 8,
+      color: "white",
+      fontWeight: "bold"
+    }}>
+      {moeda(faturamentoTotal)}
+    </div>
+  </div>
+</div>
+    </div>
+  </>
+)}
+      {reciboAberto && (
+  <div style={{
+    position: "fixed",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    background: "rgba(0,0,0,0.7)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center"
+  }}>
+    <div style={{
+      background: "#222",
+      padding: 20,
+      borderRadius: 8,
+      width: 320,
+      border: "1px solid #555"
+    }}>
+      <h2>Gerar Recibo</h2>
+
+      <p><strong>{reciboAberto.nome}</strong></p>
+
+      <label>Tipo do recibo:</label>
+      <select
+        value={tipoRecibo}
+        onChange={(e) => setTipoRecibo(e.target.value)}
+        style={{ width: "100%", marginBottom: 10 }}
+      >
+        <option value="sinal">Sinal / Entrada</option>
+        <option value="total">Valor total</option>
+      </select>
+
+      <label>Forma de pagamento:</label>
+      <select
+  value={pagamentoRecibo}
+  onChange={(e) => setPagamentoRecibo(e.target.value)}
+  style={{
+    width: "100%",
+    marginBottom: 10,
+    background: "white",
+    color: "black",
+    padding: 8,
+    borderRadius: 5
+  }}
+>
+  <option value="">Selecione a forma de pagamento</option>
+  <option value="Pix">Pix</option>
+  <option value="Dinheiro">Dinheiro</option>
+  <option value="Cartão de crédito">Cartão de crédito</option>
+  <option value="Cartão de débito">Cartão de débito</option>
+  <option value="Valor total à vista">Valor total à vista</option>
+  <option value="Transferência bancária">Transferência bancária</option>
+</select>
+
+      <button onClick={gerarRecibo}>Gerar PDF</button>
+      <button onClick={() => setReciboAberto(null)}>Cancelar</button>
+    </div>
+  </div>
+)}
+    </div>
+  );
+}

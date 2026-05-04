@@ -1,0 +1,323 @@
+import { useEffect, useState } from "react";
+import jsPDF from "jspdf";
+import assinatura from "./img/assinatura.png";
+
+export default function App() {
+  const [eventos, setEventos] = useState(() => {
+  const salvos = localStorage.getItem("eventos");
+  return salvos ? JSON.parse(salvos) : [];
+});
+  const [busca, setBusca] = useState("");
+  const [aba, setAba] = useState("cadastro");
+  const [aberto, setAberto] = useState(null);
+useEffect(() => {
+  localStorage.setItem("eventos", JSON.stringify(eventos));
+}, [eventos]);
+  const [form, setForm] = useState({
+    nome: "",
+    cpf: "",
+    whatsapp: "",
+    tipoEvento: "",
+    data: "",
+    horaInicio: "",
+    horaFim: "",
+    endereco: "",
+    cidade: "",
+    pacote: "",
+    valor: "",
+    entrada: "",
+    obs: "",
+    status: "pre",
+formaPagamento: ""
+  });
+
+  const moeda = (valor) =>
+    Number(valor || 0).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL"
+    });
+
+  const dataBR = (data) => {
+  if (!data) return "Não informado";
+
+  const [ano, mes, dia] = data.split("-");
+  const dataObj = new Date(Number(ano), Number(mes) - 1, Number(dia));
+
+  const dias = [
+    "domingo",
+    "segunda-feira",
+    "terça-feira",
+    "quarta-feira",
+    "quinta-feira",
+    "sexta-feira",
+    "sábado"
+  ];
+
+  return `${dias[dataObj.getDay()]} - ${dia}/${mes}/${ano}`;
+};
+
+  const limpar = () => {
+    setForm({
+      nome: "",
+      cpf: "",
+      whatsapp: "",
+      tipoEvento: "",
+      data: "",
+      horaInicio: "",
+      horaFim: "",
+      endereco: "",
+      cidade: "",
+      pacote: "",
+      valor: "",
+      entrada: "",
+      obs: "",
+      status: "pre"
+    });
+  };
+
+  const salvar = () => {
+    if (!form.nome || !form.whatsapp || !form.tipoEvento || !form.data) {
+      alert("Preencha pelo menos nome, WhatsApp, tipo de evento e data.");
+      return;
+    }
+
+    const novo = {
+      ...form,
+      id: Date.now(),
+      dataCadastro: new Date().toLocaleString("pt-BR")
+    };
+
+    setEventos([novo, ...eventos]);
+    limpar();
+    setAba("eventos");
+  };
+    const gerarContrato = (e) => {
+    const doc = new jsPDF();
+  
+// 🔵 TARJA AZUL
+doc.setFillColor(30, 60, 150);
+doc.rect(0, 0, 210, 30, "F");
+
+// 🔤 TEXTO NA TARJA
+doc.setTextColor(255, 255, 255);
+doc.setFont("helvetica", "bold");
+doc.setFontSize(16);
+doc.text("CONTRATO DE PRESTAÇÃO DE SERVIÇO", 105, 15, { align: "center" });
+
+doc.setFont("helvetica", "normal");
+doc.setFontSize(12);
+doc.text("@JP Eventos Fortaleza | @Vdj JeanMix", 105, 22, { align: "center" });
+doc.text("WhatsApp: (85) 98708-3412", 105, 28, { align: "center" });
+
+// 🔙 VOLTA PRA PRETO
+doc.setTextColor(0, 0, 0);
+
+// 💰 VALORES
+const total = Number(e.valor || 0);
+const entrada = Number(e.entrada || 0);
+const pendente = Math.max(total - entrada, 0);
+
+// 📍 INÍCIO DO TEXTO
+let y = 45;
+const linhas = [
+  `Nome: ${e.nome}`,
+  `CPF: ${e.cpf || "Não informado"}`,
+  `WhatsApp: ${e.whatsapp}`,
+  `Tipo do evento: ${e.tipoEvento}`,
+  `Data do evento: ${dataBR(e.data)}`,
+  `Horário: ${e.horaInicio || "Não informado"} às ${e.horaFim || "Não informado"}`,
+
+  `Endereço: ${e.endereco || "Não informado"}`,
+  `Cidade: ${e.cidade || "Não informado"}`,
+  `Pacote: ${e.pacote || "Não informado"}`,
+  `Observações: ${e.obs || "Nenhuma"}`, // 👈 AQUI
+
+  `Valor total: ${moeda(total)}`,
+  `Entrada / sinal: ${moeda(entrada)}`,
+  `Pendente: ${moeda(pendente)}`
+];
+
+    linhas.forEach((linha) => {
+      doc.text(linha, 14, y);
+      y += 7;
+    });
+
+    y += 8;
+
+    const textoCancelamento =
+      `Em caso de desistência, cancelamento do evento ou quebra do acordo por parte do contratante, ` +
+      `o valor já pago a título de entrada/sinal, correspondente a ${moeda(entrada)}, não será devolvido, ` +
+      `por se tratar da reserva da data e bloqueio da agenda do contratado.`;
+
+    const textoQuebrado = doc.splitTextToSize(textoCancelamento, 180);
+    doc.text(textoQuebrado, 14, y);
+    y += textoQuebrado.length * 7 + 10;
+
+    if (e.obs) {
+      doc.setFont("helvetica", "bold");
+      
+    }
+
+    if (entrada > 0) {
+      if (y > 220) {
+        doc.addPage();
+        y = 40;
+      }
+
+      doc.addImage(assinatura, "PNG", 20, y, 55, 25);
+      y += 28;
+
+      doc.line(14, y, 95, y);
+      y += 7;
+
+      doc.text("Jean Carlos da Silva", 54, y, { align: "center" });
+      y += 6;
+      doc.text("Assinatura / responsável", 54, y, { align: "center" });
+    }
+
+    doc.save(`contrato_${e.nome}.pdf`);
+  };
+
+  const textoCompleto = (e) => {
+    const total = Number(e.valor || 0);
+    const entrada = Number(e.entrada || 0);
+    const pendente = Math.max(total - entrada, 0);
+
+    return [
+      `Nome: ${e.nome}`,
+      `CPF: ${e.cpf || "Não informado"}`,
+      `WhatsApp: ${e.whatsapp}`,
+      `Tipo do evento: ${e.tipoEvento}`,
+      `Data do evento: ${dataBR(e.data)}`,
+      `Horário: ${e.horaInicio || "Não informado"} às ${e.horaFim || "Não informado"}`,
+      `Endereço: ${e.endereco || "Não informado"}`,
+      `Cidade: ${e.cidade || "Não informado"}`,
+      `Pacote: ${e.pacote || "Não informado"}`,
+      `Valor total: ${moeda(total)}`,
+      `Entrada / sinal: ${moeda(entrada)}`,
+      `Pendente: ${moeda(pendente)}`,
+      `Observações: ${e.obs || "Nenhuma"}`,
+      `Data do cadastro: ${e.dataCadastro || "Não informado"}`
+    ].join("\n");
+  };
+const excluirEvento = (id) => {
+  if (confirm("Tem certeza que deseja excluir este cadastro?")) {
+    setEventos(eventos.filter((e) => e.id !== id));
+  }
+};
+  const listaFiltrada = eventos.filter((e) =>
+  `${e.nome} ${e.cpf} ${e.whatsapp} ${e.tipoEvento} ${e.data} ${e.pacote} ${e.pacotePersonalizado || ""} ${e.obs || ""} ${e.endereco || ""}`
+    .toLowerCase()
+    .includes(busca.toLowerCase())
+);
+    return (
+    <div style={{ padding: 20 }}>
+      <h1>JP Eventos</h1>
+
+      <input
+        placeholder="Buscar cliente..."
+        value={busca}
+        onChange={(e) => setBusca(e.target.value)}
+        style={{ width: "100%", marginBottom: 10 }}
+      />
+
+      <div style={{ marginBottom: 20 }}>
+        <button onClick={() => setAba("cadastro")}>Cadastro</button>
+        <button onClick={() => setAba("eventos")}>Eventos</button>
+      </div>
+
+      {aba === "cadastro" && (
+        <>
+          <h2>Cadastro</h2>
+
+          <input placeholder="Nome" value={form.nome} onChange={(e)=>setForm({...form, nome:e.target.value})}/>
+<input placeholder="CPF" value={form.cpf} onChange={(e)=>setForm({...form, cpf:e.target.value})}/>
+<input placeholder="WhatsApp" value={form.whatsapp} onChange={(e)=>setForm({...form, whatsapp:e.target.value})}/>
+<input placeholder="Tipo Evento" value={form.tipoEvento} onChange={(e)=>setForm({...form, tipoEvento:e.target.value})}/>
+<input type="date" value={form.data} onChange={(e)=>setForm({...form, data:e.target.value})}/>
+
+<input placeholder="Hora início" value={form.horaInicio} onChange={(e)=>setForm({...form, horaInicio:e.target.value})}/>
+<input placeholder="Hora fim" value={form.horaFim} onChange={(e)=>setForm({...form, horaFim:e.target.value})}/>
+<input placeholder="Endereço" value={form.endereco} onChange={(e)=>setForm({...form, endereco:e.target.value})}/>
+<input placeholder="Cidade" value={form.cidade} onChange={(e)=>setForm({...form, cidade:e.target.value})}/>
+
+<select
+  value={form.pacote}
+  onChange={(e)=>setForm({...form, pacote:e.target.value})}
+>
+  <option value="">Selecione o pacote</option>
+  <option value="Pacote 01 - Dj + Som">Pacote 01 - Dj + Som</option>
+  <option value="Pacote 02 - Dj + Som + Iluminação">Pacote 02 - Dj + Som + Iluminação</option>
+  <option value="Pacote 03 - Completo">Pacote 03 - Completo</option>
+  <option value="Outro">Outro</option>
+</select>
+
+{form.pacote === "Outro" && (
+  <input
+    placeholder="Digite o pacote personalizado"
+    value={form.pacotePersonalizado || ""}
+    onChange={(e)=>setForm({...form, pacotePersonalizado:e.target.value})}
+  />
+)}
+
+<input placeholder="Valor total" value={form.valor} onChange={(e)=>setForm({...form, valor:e.target.value})}/>
+<input placeholder="Entrada" value={form.entrada} onChange={(e)=>setForm({...form, entrada:e.target.value})}/>
+
+<textarea placeholder="Observações" value={form.obs} onChange={(e)=>setForm({...form, obs:e.target.value})}/>
+
+<button onClick={salvar}>Salvar</button>
+        </>
+      )}
+
+      {aba === "eventos" && (
+        <>
+          <h2>Eventos</h2>
+
+          {listaFiltrada.map((e) => (
+            <div key={e.id} style={{ border: "1px solid #444", marginBottom: 10, padding: 10 }}>
+              <strong>{e.nome}</strong><br/>
+Tipo do evento: {e.tipoEvento}<br/>
+<span style={{ color: "deepskyblue" }}>
+  Data do evento: {dataBR(e.data)}
+</span>
+<br/>
+WhatsApp: {e.whatsapp}<br/>
+Pacote: {e.pacote === "Outro" ? e.pacotePersonalizado : (e.pacote || "Não informado")}<br/>
+{e.obs && (
+  <>
+    Observações: {e.obs}<br/>
+  </>
+)}
+<span style={{ color: "deepskyblue" }}>
+  Valor total: {moeda(Number(e.valor || 0))}
+</span>
+<br/>
+
+<span style={{ color: "yellow" }}>
+  Entrada / sinal: {moeda(Number(e.entrada || 0))}
+</span>
+<br/>
+
+<span style={{ color: "red" }}>
+  Pendente: {moeda(Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0))}
+</span>
+<br/>
+Endereço: {e.endereco || "Não informado"}<br/>
+
+              <button onClick={() => gerarContrato(e)}>Contrato</button>
+              <button
+  onClick={() => {
+    navigator.clipboard.writeText(textoCompleto(e));
+    alert("Cadastro copiado!");
+  }}
+>
+  Copiar
+</button>
+              <button onClick={() => excluirEvento(e.id)}>Excluir</button>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,2958 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import jsPDF from "jspdf";
+import assinatura from "./img/assinatura.png";
+import { supabase } from "./supabase";
+
+export default function App() {
+  const [eventos, setEventos] = useState(() => {
+    try {
+      const salvos = localStorage.getItem("eventos");
+      return salvos ? JSON.parse(salvos) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [editandoId, setEditandoId] = useState(null);
+  const [busca, setBusca] = useState("");
+  const [aba, setAba] = useState("");
+  const [menuAberto, setMenuAberto] = useState(false);
+  const [reciboAberto, setReciboAberto] = useState(null);
+  const [tipoRecibo, setTipoRecibo] = useState("sinal");
+  const [pagamentoRecibo, setPagamentoRecibo] = useState("Pix");
+  const [filtroStatus, setFiltroStatus] = useState("todos");
+  const [mesCalendario, setMesCalendario] = useState(() => new Date().getMonth());
+  const [anoCalendario, setAnoCalendario] = useState(() => new Date().getFullYear());
+  const [diaSelecionado, setDiaSelecionado] = useState(null);
+  const inputBackupRef = useRef(null);
+  const valorInputRef = useRef(null);
+  const entradaInputRef = useRef(null);
+  const [larguraTela, setLarguraTela] = useState(() => window.innerWidth);
+  const isMobile = larguraTela <= 700;
+
+  const formInicial = {
+    nome: "",
+    cpf: "",
+    whatsapp: "",
+    tipoEvento: "",
+    data: "",
+    horaInicio: "",
+    horaFim: "",
+    endereco: "",
+    cidade: "",
+    bairro: "",
+    pacote: "",
+    pacotePersonalizado: "",
+    valor: "",
+    entrada: "",
+    custo: "",
+    formaEntrada: "",
+    formaPagamento: "",
+    parcelas: "",
+    obs: "",
+    status: "pre",
+    executado: false,
+    quitado: false
+  };
+
+  const PACOTES_PROFISSIONAIS = {
+    "Pacote de ENTRADA 01 - DJ + Som": { valor: 450, entrada: 150, descricao: "DJ + som profissional para eventos compactos." },
+    "Pacote 02 de ENTRADA - DJ + Som + Iluminação + Máquina de fumaça opcional": { valor: 650, entrada: 200, descricao: "DJ + som + iluminação + máquina de fumaça opcional." },
+    "Pacote 03 Completo - DJ + Som + Iluminação Top + Máquina de fumaça opcional": { valor: 850, entrada: 250, descricao: "Pacote completo com DJ, som, iluminação top e fumaça opcional." },
+    "Pacote 04 - Som + Luz + Máquina de fumaça opcional + DJ/VJ mixando vídeo na TV": { valor: 1000, entrada: 300, descricao: "DJ/VJ com mixagem de vídeo na TV, som, luz e fumaça opcional." },
+    "Pacote 05 - Som + Luz + Máquina de fumaça + DJ/VJ mixando vídeo no telão": { valor: 1300, entrada: 400, descricao: "Experiência premium com DJ/VJ, telão, som, luz e máquina de fumaça." },
+    "Pacote Kids Festa Infantil - DJ + Som + Luz + Máquina de fumaça opcional": { valor: 700, entrada: 200, descricao: "Pacote infantil com DJ, som, luz e fumaça opcional." },
+    "Pacote Projeção - Telão + Projetor": { valor: 450, entrada: 150, descricao: "Telão + projetor para retrospectiva, vídeos e apresentação." },
+    "Pacote Kids Criancinha Projeção - DJ + Som + Luz + Máquina de fumaça opcional + DJ mixando ao vivo no telão": { valor: 1100, entrada: 300, descricao: "Pacote kids com projeção e DJ mixando ao vivo no telão." },
+    "Pacote Kids Festa Infantil Projeção - DJ + Som + Luz + Máquina de fumaça opcional + DJ mixando ao vivo no telão": { valor: 1200, entrada: 350, descricao: "Festa infantil com DJ, som, luz, fumaça opcional e telão." },
+    "Pacote Kids Festa Infantil Projeção - Telão + Projetor + Caixa de som ativa + Tripé + 2 microfones sem fio": { valor: 800, entrada: 250, descricao: "Projeção com telão, projetor, caixa ativa, tripé e 2 microfones sem fio." },
+    "Aluguel de equipamentos": { valor: 350, entrada: 100, descricao: "Locação de equipamentos conforme necessidade do evento." }
+  };
+
+  const pegarPacoteFinal = (evento = form) => evento.pacote === "Outro" ? evento.pacotePersonalizado : evento.pacote;
+
+  const pacoteInfo = (pacote) => PACOTES_PROFISSIONAIS[pacote] || null;
+
+  const campoFoiPreenchido = (valor) =>
+    valor !== undefined && valor !== null && String(valor).trim() !== "";
+
+  const valorOuPadrao = (valor, padrao = "0") =>
+    campoFoiPreenchido(valor) ? String(valor) : String(padrao);
+
+  const aplicarValorDoPacote = (pacoteEscolhido = form.pacote) => {
+    const info = pacoteInfo(pacoteEscolhido);
+    if (!info) return;
+
+    // Este botão agora só usa a sugestão quando você clicar nele de propósito.
+    // Se quiser preço manual, basta digitar no campo VALOR TOTAL e ele será mantido.
+    setForm((atual) => ({
+      ...atual,
+      pacote: pacoteEscolhido,
+      valor: String(info.valor),
+      entrada: String(info.entrada),
+      formaEntrada: atual.formaEntrada || "Pix",
+      formaPagamento: atual.formaPagamento || "Entrada / sinal"
+    }));
+  };
+
+  const confirmarValorManual = () => {
+    const valorManual = String(form.valor ?? "").trim();
+    const sinalManual = String(form.entrada ?? "").trim();
+
+    if (!valorManual) {
+      alert("Digite primeiro o valor final no campo VALOR TOTAL.");
+      valorInputRef.current?.focus();
+      return;
+    }
+
+    setForm((atual) => ({
+      ...atual,
+      valor: valorManual,
+      entrada: sinalManual === "" ? "0" : sinalManual
+    }));
+
+    alert(`Valor manual confirmado!\n\nValor final: ${moeda(valorManual)}${sinalManual ? `\nSinal: ${moeda(sinalManual)}` : ""}\n\nA proposta, o contrato e o WhatsApp vão usar esse valor.`);
+  };
+
+  const mensagemComPreco = (evento = form) => {
+    const pacoteFinal = pegarPacoteFinal(evento) || "pacote ideal para seu evento";
+    const info = pacoteInfo(pacoteFinal);
+    const total = Number(campoFoiPreenchido(evento.valor) ? evento.valor : (info?.valor || 0));
+    const entrada = Number(campoFoiPreenchido(evento.entrada) ? evento.entrada : 0);
+    const pendente = Math.max(total - entrada, 0);
+
+    return [
+      `Olá, ${evento.nome || "tudo bem"}! 😊`,
+      "",
+      "Já conferi as informações do seu evento e montei a melhor opção para você:",
+      "",
+      `🎉 Evento: ${evento.tipoEvento || "a confirmar"}`,
+      `📅 Data: ${evento.data ? dataCurtaBR(evento.data) : "a confirmar"}`,
+      `⏰ Horário: ${evento.horaInicio || "a combinar"}${evento.horaFim ? ` às ${evento.horaFim}` : ""}`,
+      `📍 Local: ${evento.cidade || evento.endereco || "a confirmar"}`,
+      "",
+      `✅ Pacote indicado: ${pacoteFinal}`,
+      info?.descricao ? `📦 Inclui: ${info.descricao}` : "",
+      "",
+      total > 0 ? `💰 Valor total: ${moeda(total)}` : "💰 Valor total: a confirmar",
+      entrada > 0 ? `🔐 Reserva da data com sinal de: ${moeda(entrada)}` : "",
+      total > 0 ? `💳 Restante para o dia do evento: ${moeda(pendente)}` : "",
+      "",
+      "Para garantir a data, é só confirmar o pacote e fazer o sinal. Assim eu já deixo sua data reservada na agenda. 🙌"
+    ].filter(Boolean).join("\n");
+  };
+
+  const copiarMensagemPreco = () => {
+    const texto = mensagemComPreco(form);
+    navigator.clipboard.writeText(texto);
+    alert("Mensagem com preço copiada!");
+  };
+
+  const abrirWhatsAppProposta = (evento = form) => {
+    const numero = evento.whatsapp;
+    if (!numero) {
+      alert("Informe o WhatsApp do cliente primeiro.");
+      return;
+    }
+
+    let numeroLimpo = String(numero).replace(/\D/g, "");
+    if (!numeroLimpo.startsWith("55")) numeroLimpo = `55${numeroLimpo}`;
+    window.open(`https://wa.me/${numeroLimpo}?text=${encodeURIComponent(mensagemComPreco(evento))}`, "_blank");
+  };
+
+  const [form, setForm] = useState(formInicial);
+  const [textoWhatsApp, setTextoWhatsApp] = useState("");
+  const [bancoStatus, setBancoStatus] = useState("Conectando ao banco online...");
+  const bancoCarregadoRef = useRef(false);
+  const sincronizandoBancoRef = useRef(false);
+
+  const ehUuid = (valor) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(valor || ""));
+
+  const criarIdSeguro = () =>
+    typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  const normalizarIdsEventos = (lista) =>
+    (Array.isArray(lista) ? lista : []).map((evento) => ({
+      ...evento,
+      id: ehUuid(evento.id) ? evento.id : criarIdSeguro()
+    }));
+
+  const eventoParaBanco = (evento) => ({
+    id: ehUuid(evento.id) ? evento.id : undefined,
+    nome: evento.nome || "",
+    cpf: evento.cpf || "",
+    whatsapp: evento.whatsapp || "",
+    tipo_evento: evento.tipoEvento || "",
+    data: evento.data || "",
+    hora_inicio: evento.horaInicio || "",
+    hora_fim: evento.horaFim || "",
+    endereco: evento.endereco || "",
+    cidade: evento.cidade || "",
+    bairro: evento.bairro || "",
+    pacote: evento.pacote || "",
+    pacote_personalizado: evento.pacotePersonalizado || "",
+    valor: Number(evento.valor || 0),
+    entrada: Number(evento.entrada || 0),
+    custo: Number(evento.custo || 0),
+    forma_entrada: evento.formaEntrada || "",
+    forma_pagamento: evento.formaPagamento || "",
+    parcelas: evento.parcelas || "",
+    obs: evento.obs || "",
+    status: evento.status || "pre",
+    executado: Boolean(evento.executado),
+    quitado: Boolean(evento.quitado),
+    historico: Array.isArray(evento.historico) ? evento.historico : [],
+    data_cadastro: evento.dataCadastro || ""
+  });
+
+  const eventoDoBanco = (row) => ({
+    id: row.id,
+    nome: row.nome || "",
+    cpf: row.cpf || "",
+    whatsapp: row.whatsapp || "",
+    tipoEvento: row.tipo_evento || "",
+    data: row.data || "",
+    horaInicio: row.hora_inicio || "",
+    horaFim: row.hora_fim || "",
+    endereco: row.endereco || "",
+    cidade: row.cidade || "",
+    bairro: row.bairro || "",
+    pacote: row.pacote || "",
+    pacotePersonalizado: row.pacote_personalizado || "",
+    valor: row.valor === null || row.valor === undefined ? "" : String(row.valor),
+    entrada: row.entrada === null || row.entrada === undefined ? "" : String(row.entrada),
+    custo: row.custo === null || row.custo === undefined ? "" : String(row.custo),
+    formaEntrada: row.forma_entrada || "",
+    formaPagamento: row.forma_pagamento || "",
+    parcelas: row.parcelas || "",
+    obs: row.obs || "",
+    status: row.status || "pre",
+    executado: Boolean(row.executado),
+    quitado: Boolean(row.quitado),
+    historico: Array.isArray(row.historico) ? row.historico : [],
+    dataCadastro: row.data_cadastro || ""
+  });
+
+  const carregarEventosDoBanco = async () => {
+    try {
+      setBancoStatus("Conectando ao banco online...");
+      const { data, error } = await supabase
+        .from("eventos")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      if (Array.isArray(data) && data.length > 0) {
+        setEventos(data.map(eventoDoBanco));
+        setBancoStatus("Online: dados carregados do Supabase.");
+      } else {
+        setEventos((atuais) => normalizarIdsEventos(atuais));
+        setBancoStatus("Online: banco vazio, usando dados locais como primeira sincronização.");
+      }
+    } catch (erro) {
+      console.error("Erro ao carregar Supabase:", erro);
+      setBancoStatus(`Modo local: ${erro?.message || "não conectou ao Supabase"}`);
+    } finally {
+      bancoCarregadoRef.current = true;
+    }
+  };
+
+  const sincronizarEventosNoBanco = async (lista) => {
+    if (!bancoCarregadoRef.current || sincronizandoBancoRef.current) return;
+
+    try {
+      sincronizandoBancoRef.current = true;
+      setBancoStatus("Salvando online...");
+
+      const { error: deleteError } = await supabase
+        .from("eventos")
+        .delete()
+        .neq("id", "00000000-0000-0000-0000-000000000000");
+
+      if (deleteError) throw deleteError;
+
+      const registros = normalizarIdsEventos(lista).map(eventoParaBanco);
+
+      if (registros.length > 0) {
+        const { error: insertError } = await supabase.from("eventos").insert(registros);
+        if (insertError) throw insertError;
+      }
+
+      setBancoStatus(`Online: ${registros.length} cadastro(s) sincronizado(s).`);
+    } catch (erro) {
+      console.error("Erro ao sincronizar Supabase:", erro);
+      setBancoStatus(`Erro ao salvar online: ${erro?.message || erro}`);
+    } finally {
+      sincronizandoBancoRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    carregarEventosDoBanco();
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("eventos", JSON.stringify(eventos));
+    sincronizarEventosNoBanco(eventos);
+  }, [eventos]);
+
+  useEffect(() => {
+    const atualizarLargura = () => setLarguraTela(window.innerWidth);
+    window.addEventListener("resize", atualizarLargura);
+    return () => window.removeEventListener("resize", atualizarLargura);
+  }, []);
+
+  const estilos = {
+    pagina: {
+      minHeight: "100vh",
+      padding: isMobile ? 12 : 20,
+      background: "linear-gradient(135deg, #09090b, #111827, #1a0f2e)",
+      color: "white",
+      fontFamily: "Arial, sans-serif"
+    },
+    titulo: {
+      marginBottom: 4,
+      color: "#ffffff"
+    },
+    subtitulo: {
+      marginTop: 0,
+      color: "#c4b5fd"
+    },
+    input: {
+      width: "100%",
+      fontSize: isMobile ? 16 : 14,
+      boxSizing: "border-box",
+      marginBottom: 10,
+      background: "#111827",
+      color: "white",
+      padding: 12,
+      borderRadius: 8,
+      border: "1px solid #6c2bd9",
+      outline: "none"
+    },
+    textarea: {
+      width: "100%",
+      fontSize: isMobile ? 16 : 14,
+      minHeight: 80,
+      boxSizing: "border-box",
+      marginBottom: 10,
+      background: "#111827",
+      color: "white",
+      padding: 12,
+      borderRadius: 8,
+      border: "1px solid #6c2bd9",
+      outline: "none"
+    },
+    botao: {
+      margin: "4px 4px 4px 0",
+      padding: isMobile ? "12px 14px" : "10px 12px",
+      borderRadius: 8,
+      border: "none",
+      background: "#374151",
+      color: "white",
+      cursor: "pointer",
+      fontWeight: "bold"
+    },
+    botaoRoxo: {
+      margin: "4px 4px 4px 0",
+      padding: isMobile ? "12px 14px" : "10px 12px",
+      borderRadius: 8,
+      border: "none",
+      background: "#6c2bd9",
+      color: "white",
+      cursor: "pointer",
+      fontWeight: "bold"
+    },
+    card: {
+      border: "1px solid #6c2bd9",
+      background: "rgba(17, 24, 39, 0.92)",
+      padding: 14,
+      marginBottom: 12,
+      borderRadius: 10,
+      boxShadow: "0 0 10px rgba(108,43,217,0.25)"
+    },
+    gridResumo: {
+      display: "grid",
+      gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(170px, 1fr))",
+      gap: 12,
+      marginBottom: 20
+    },
+    cardResumo: {
+      background: "rgba(42, 21, 80, 0.85)",
+      border: "1px solid #6c2bd9",
+      borderRadius: 12,
+      padding: 14,
+      boxShadow: "0 0 10px rgba(108,43,217,0.25)"
+    }
+  };
+
+  const moeda = (valor) =>
+    Number(valor || 0).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL"
+    });
+
+  const dataBR = (data) => {
+    if (!data) return "Não informado";
+    const [ano, mes, dia] = data.split("-");
+    const dataObj = new Date(Number(ano), Number(mes) - 1, Number(dia));
+    const dias = [
+      "domingo",
+      "segunda-feira",
+      "terça-feira",
+      "quarta-feira",
+      "quinta-feira",
+      "sexta-feira",
+      "sábado"
+    ];
+    return `${dias[dataObj.getDay()]} - ${dia}/${mes}/${ano}`;
+  };
+
+  const dataCurtaBR = (data) => {
+    if (!data) return "";
+    const [ano, mes, dia] = data.split("-");
+    return `${dia}/${mes}/${ano}`;
+  };
+
+  const normalizarTexto = (texto) =>
+    String(texto || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+
+  const limparObservacoesInternas = (obs) =>
+    String(obs || "")
+      .split("\n")
+      .filter((linha) => {
+        const l = normalizarTexto(linha);
+        return (
+          !l.includes("sugestao de pacote") &&
+          !l.includes("mensagem sugerida") &&
+          !l.includes("dados extraidos")
+        );
+      })
+      .join("\n")
+      .trim();
+
+  const normalizarHorarioManual = (valor) => {
+    const texto = String(valor || "").trim().toLowerCase();
+    if (!texto) return "";
+
+    const achou = texto.match(/(\d{1,2})(?:\s*h|:([0-5]\d))?/i);
+    if (!achou) return "";
+
+    let hora = Number(achou[1]);
+    const minuto = achou[2] ? Number(achou[2]) : 0;
+
+    if (Number.isNaN(hora) || hora < 0 || hora > 23) return "";
+    return `${String(hora).padStart(2, "0")}:${String(minuto).padStart(2, "0")}`;
+  };
+
+  const cidadeBairroFinal = (evento) => {
+    const cidade = String(evento?.cidade || "").trim();
+    const bairro = String(evento?.bairro || "").trim();
+
+    if (cidade && bairro && !normalizarTexto(cidade).includes(normalizarTexto(bairro))) {
+      return `${cidade} / ${bairro}`;
+    }
+
+    return cidade || bairro || "Não informado";
+  };
+
+
+  const temSinal = (e) => Number(e?.entrada || 0) > 0;
+
+  const reservaConfirmada = (e) => e?.status === "confirmado" || Boolean(e?.quitado);
+
+  const ehPreCadastro = (e) => !reservaConfirmada(e) || !e?.valor || Number(e.valor || 0) === 0;
+
+  const statusEvento = (e) => {
+    if (ehPreCadastro(e)) return "pre";
+    if (e.quitado) return "pago";
+    return "pendente";
+  };
+
+  const textoStatus = (e) => {
+    if (reservaConfirmada(e)) return "🟢 EVENTO CONFIRMADO";
+    if (temSinal(e)) return "🟠 PRÉ-RESERVA COM SINAL / AGUARDANDO CONFIRMAÇÃO";
+    return "🟡 PRÉ-RESERVA SEM SINAL / DATA NÃO GARANTIDA";
+  };
+
+  const textoStatusCurto = (e) => {
+    if (reservaConfirmada(e)) return "🟢 EVENTO CONFIRMADO";
+    if (temSinal(e)) return "🟠 PRÉ-RESERVA COM SINAL";
+    return "⚠️ PRÉ-RESERVA SEM PAGAMENTO";
+  };
+
+  const corStatus = (e) => {
+    if (reservaConfirmada(e)) return "limegreen";
+    if (temSinal(e)) return "#f59e0b";
+    return "orange";
+  };
+
+  const criarRegistroHistorico = (acao, detalhe = "") => ({
+    id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    data: new Date().toLocaleString("pt-BR"),
+    acao,
+    detalhe
+  });
+
+  const registrarHistoricoEvento = (evento, acao, detalhe = "") => {
+    if (!evento?.id) return;
+    const registro = criarRegistroHistorico(acao, detalhe);
+    setEventos((lista) =>
+      lista.map((item) =>
+        item.id === evento.id
+          ? { ...item, historico: [registro, ...(Array.isArray(item.historico) ? item.historico : [])].slice(0, 50) }
+          : item
+      )
+    );
+  };
+
+  const resumoHistorico = (evento) => {
+    const historico = Array.isArray(evento?.historico) ? evento.historico : [];
+    return historico.slice(0, 5);
+  };
+
+  const perguntasPadrao = `Olá! Para eu te passar o melhor pacote, me responde preenchendo essas informações aqui mesmo no WhatsApp:
+
+📅 Data do evento:
+📍 Cidade / bairro:
+🏠 Endereço completo:
+🎉 Tipo de evento:
+🎂 Se for aniversário, qual idade?
+👤 Nome do aniversariante ou homenageado:
+⏰ Horário de início:
+⏳ Quantas horas de evento?
+🏢 Local: buffet, casa, salão, loja ou local externo?
+☔ O local é coberto?
+
+Me passando essas informações eu já vejo o melhor pacote para seu evento.`;
+
+  const copiarPerguntasPadrao = () => {
+  navigator.clipboard.writeText(perguntasPadrao);
+
+  const abrir = confirm(
+    "Perguntas copiadas!\n\nDeseja abrir o WhatsApp agora?"
+  );
+
+  if (abrir) {
+    const numero = form.whatsapp ? form.whatsapp.replace(/\D/g, "") : "";
+
+    if (numero) {
+      const numeroFinal = numero.startsWith("55") ? numero : `55${numero}`;
+      window.open(
+        `https://wa.me/${numeroFinal}?text=${encodeURIComponent(perguntasPadrao)}`,
+        "_blank"
+      );
+    } else {
+      window.open(
+        `https://wa.me/?text=${encodeURIComponent(perguntasPadrao)}`,
+        "_blank"
+      );
+    }
+  }
+};
+
+  const separarLinhas = (texto) => String(texto || "").split(String.fromCharCode(10)).map((l) => l.trim()).filter(Boolean);
+
+  const extrairNumeros = (texto) => {
+    const numeros = [];
+    let atual = "";
+    for (const c of String(texto || "")) {
+      if (c >= "0" && c <= "9") atual += c;
+      else if (atual) {
+        numeros.push(Number(atual));
+        atual = "";
+      }
+    }
+    if (atual) numeros.push(Number(atual));
+    return numeros;
+  };
+
+  const pegarDataTexto = (texto) => {
+  const linhas = separarLinhas(texto);
+
+  for (const linha of linhas) {
+    const l = normalizarTexto(linha);
+
+    const numeros = extrairNumeros(linha);
+
+    if (
+      numeros.length >= 2 &&
+      numeros[0] >= 1 &&
+      numeros[0] <= 31 &&
+      numeros[1] >= 1 &&
+      numeros[1] <= 12 &&
+      !l.includes("horas") &&
+      !l.includes("hrs") &&
+      !l.includes("pessoas") &&
+      !l.includes("total")
+    ) {
+      const ano = new Date().getFullYear();
+      return `${ano}-${String(numeros[1]).padStart(2, "0")}-${String(numeros[0]).padStart(2, "0")}`;
+    }
+  }
+
+  return "";
+};
+
+
+  const pegarHoraTexto = (texto) => {
+    const t = normalizarTexto(texto);
+
+    const matchComeca = t.match(/(?:comeca|começa|inicio|início|horario|horário)\s*(?:as|às)?\s*(\d{1,2})/i);
+    if (matchComeca) {
+      let h = Number(matchComeca[1]);
+      if ((t.includes("tarde") || t.includes("noite")) && h < 12) h += 12;
+      if ((t.includes("manha") || t.includes("manhã")) && h === 12) h = 0;
+      return `${String(h).padStart(2, "0")}:00`;
+    }
+
+    const matchDas = t.match(/(\d{1,2})\s*h?\s*(?:as|às|ate|até|-)\s*(\d{1,2})/i);
+    if (matchDas) {
+      const h = Number(matchDas[1]);
+      return `${String(h).padStart(2, "0")}:00`;
+    }
+
+    return "";
+  };
+
+  const pegarDuracaoTexto = (texto) => {
+    const t = normalizarTexto(texto);
+
+    // Prioriza frases claras de duração, como "1 hora", "3 horas" ou "total de 3 horas".
+    // Não deixa a frase seguinte "Começa às 10 horas" confundir a duração.
+    const duracaoClara = t.match(/(?:duracao|duração|total de|por|sao|são)?\s*(\d{1,2})\s*(hora|horas|hrs|h)\b/i);
+
+    if (duracaoClara) {
+      const qtd = Number(duracaoClara[1]);
+      const antes = t.slice(Math.max(0, duracaoClara.index - 25), duracaoClara.index);
+
+      const pareceHoraInicio =
+        antes.includes("comeca") ||
+        antes.includes("começa") ||
+        antes.includes("inicio") ||
+        antes.includes("início") ||
+        antes.includes("horario") ||
+        antes.includes("horário") ||
+        antes.trim().endsWith("as") ||
+        antes.trim().endsWith("às");
+
+      if (qtd > 0 && qtd <= 12 && !pareceHoraInicio) return qtd;
+    }
+
+    return null;
+  };
+
+  const somarHorasTexto = (hora, qtd) => {
+    if (!hora || !qtd) return "";
+    const [h, m] = hora.split(":").map(Number);
+    const data = new Date(2000, 0, 1, h, m || 0);
+    data.setHours(data.getHours() + Number(qtd));
+    return `${String(data.getHours()).padStart(2, "0")}:${String(data.getMinutes()).padStart(2, "0")}`;
+  };
+
+  const pegarLinha = (texto, palavras) => {
+    const linhas = separarLinhas(texto);
+    for (const linha of linhas) {
+      const ln = normalizarTexto(linha);
+      for (const palavra of palavras) {
+        if (ln.includes(normalizarTexto(palavra))) return linha;
+      }
+    }
+    return "";
+  };
+
+  const limparResposta = (linha, palavras) => {
+    let texto = String(linha || "");
+    for (const palavra of palavras) {
+      texto = texto.replaceAll(palavra, "");
+      texto = texto.replaceAll(palavra.toUpperCase(), "");
+    }
+    return texto.replaceAll(":", "").replaceAll("-", "").trim();
+  };
+
+  const removerPrefixoWhatsApp = (linha) => {
+    let texto = String(linha || "").trim();
+
+    if (texto.startsWith("[")) {
+      const fim = texto.indexOf("]");
+      if (fim >= 0) texto = texto.slice(fim + 1).trim();
+    }
+
+    const separador = texto.indexOf(" - ");
+    if (separador >= 0 && separador < 30) {
+      texto = texto.slice(separador + 3).trim();
+    }
+
+    const doisPontos = texto.indexOf(":");
+    const antesDoisPontos = doisPontos >= 0 ? texto.slice(0, doisPontos).trim() : "";
+    const numerosAntes = antesDoisPontos.replace(/[^0-9]/g, "");
+    const pareceRemetente = antesDoisPontos.startsWith("+") || numerosAntes.length >= 8 || antesDoisPontos.toLowerCase().includes("jp eventos") || antesDoisPontos.toLowerCase().includes("jeanmix");
+
+    if (doisPontos >= 0 && pareceRemetente) {
+      texto = texto.slice(doisPontos + 1).trim();
+    }
+
+    return texto;
+  };
+
+  const limparConversaWhatsApp = (texto) => {
+    const linhas = separarLinhas(texto);
+    const cliente = [];
+
+    for (const linhaOriginal of linhas) {
+      const originalNormal = normalizarTexto(linhaOriginal);
+      if (originalNormal.includes("jp eventos") || originalNormal.includes("jeanmix")) continue;
+
+      let linha = removerPrefixoWhatsApp(linhaOriginal);
+      const ln = normalizarTexto(linha);
+
+      if (!linha) continue;
+      if (ln.includes("pra quando vai ser")) continue;
+      if (ln.includes("onde sera") || ln.includes("onde será")) continue;
+      if (ln.includes("qual o endereco") || ln.includes("qual o endereço")) continue;
+      if (ln.includes("qual o numero") || ln.includes("qual o número")) continue;
+      if (ln.includes("quantas horas")) continue;
+      if (ln.includes("vai comecar") || ln.includes("vai começar")) continue;
+      if (ln.includes("me passa essas informacoes") || ln.includes("me passa essas informações")) continue;
+      if (ln.includes("tem que ser em parte coberto")) continue;
+      if (ln.includes("pois como ta em epoca")) continue;
+
+      cliente.push(linha);
+    }
+
+    return cliente.join(String.fromCharCode(10));
+  };
+
+  const procurarLinhaCom = (texto, palavras) => {
+    const linhas = separarLinhas(texto);
+    for (const linha of linhas) {
+      const ln = normalizarTexto(linha);
+      for (const palavra of palavras) {
+        if (ln.includes(normalizarTexto(palavra))) return linha;
+      }
+    }
+    return "";
+  };
+
+  const juntarEnderecoComNumero = (endereco, texto) => {
+    if (!endereco) return "";
+    const linhas = separarLinhas(texto);
+    const index = linhas.findIndex((l) => normalizarTexto(l) === normalizarTexto(endereco));
+    if (index >= 0 && linhas[index + 1]) {
+      const proxima = linhas[index + 1].trim();
+      const numeros = extrairNumeros(proxima);
+      if (numeros.length > 0 && proxima.length <= 10) return `${endereco}, ${proxima}`;
+    }
+    return endereco;
+  };
+
+  const extrairDadosWhatsApp = () => {
+    if (!textoWhatsApp.trim()) {
+      alert("Cole a conversa ou resposta do cliente primeiro.");
+      return;
+    }
+
+    const textoOriginal = textoWhatsApp;
+    const textoLimpo = limparConversaWhatsApp(textoOriginal);
+    // Para extrair campos com rótulos do WhatsApp (ex: "Nome completo:", "Pra quando vai ser:"),
+    // usamos o texto original. O texto limpo continua servindo como apoio para detectar informações soltas.
+    const texto = textoOriginal;
+    const textoApoio = `${textoOriginal}
+${textoLimpo || ""}`;
+    const t = normalizarTexto(textoApoio);
+    const linhasTexto = separarLinhas(textoApoio);
+    const linhasOriginais = separarLinhas(textoOriginal);
+
+    const apenasNumeros = (valor) => String(valor || "").replace(/[^0-9]/g, "");
+
+    const valorPorRotulo = (rotulos) => {
+      const listaRotulos = Array.isArray(rotulos) ? rotulos : [rotulos];
+
+      for (const linha of linhasOriginais) {
+        const normal = normalizarTexto(linha).replace(/\s+/g, " ").trim();
+
+        for (const rotulo of listaRotulos) {
+          const rotuloNormal = normalizarTexto(rotulo).replace(/\s+/g, " ").trim();
+          if (normal.startsWith(rotuloNormal)) {
+            const doisPontos = linha.indexOf(":");
+            if (doisPontos >= 0) return linha.slice(doisPontos + 1).trim();
+            return linha.slice(rotulo.length).replace(/^[-–—\s]+/, "").trim();
+          }
+        }
+      }
+
+      return "";
+    };
+
+    const normalizarDataTexto = (valor) => {
+      const nums = extrairNumeros(valor);
+      if (nums.length < 2) return "";
+      const dia = nums[0];
+      const mes = nums[1];
+      const anoBruto = nums[2] || new Date().getFullYear();
+      const ano = anoBruto < 100 ? 2000 + anoBruto : anoBruto;
+      if (dia >= 1 && dia <= 31 && mes >= 1 && mes <= 12) {
+        return `${ano}-${String(mes).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+      }
+      return "";
+    };
+
+    const normalizarHoraTexto = (valor, frase = "") => {
+      const achou = String(valor || "").match(/(\d{1,2})(?:\s*h|:([0-5]\d))?/i);
+      if (!achou) return "";
+      let hora = Number(achou[1]);
+      const minuto = achou[2] ? Number(achou[2]) : 0;
+      const f = normalizarTexto(`${valor} ${frase}`);
+      if ((f.includes("tarde") || f.includes("noite")) && hora > 0 && hora < 12) hora += 12;
+      if ((f.includes("manha") || f.includes("manhã")) && hora === 12) hora = 0;
+      if (Number.isNaN(hora) || hora < 0 || hora > 23) return "";
+      return `${String(hora).padStart(2, "0")}:${String(minuto).padStart(2, "0")}`;
+    };
+
+    const formatarCPF = (nums) => {
+      if (!nums || nums.length !== 11) return "";
+      return `${nums.slice(0, 3)}.${nums.slice(3, 6)}.${nums.slice(6, 9)}-${nums.slice(9, 11)}`;
+    };
+
+    const normalizarHora = (h, frase = "") => {
+      let hora = Number(h);
+      const f = normalizarTexto(frase);
+      if ((f.includes("tarde") || f.includes("noite")) && hora > 0 && hora < 12) hora += 12;
+      if ((f.includes("manha") || f.includes("manhã")) && hora === 12) hora = 0;
+      if (Number.isNaN(hora) || hora < 0 || hora > 23) return "";
+      return `${String(hora).padStart(2, "0")}:00`;
+    };
+
+    const somarHoras = (hora, qtd) => {
+      if (!hora || !qtd) return "";
+      const [h, m] = hora.split(":").map(Number);
+      if (Number.isNaN(h)) return "";
+      let novaHora = h + Number(qtd);
+      if (novaHora >= 24) novaHora = novaHora % 24;
+      return `${String(novaHora).padStart(2, "0")}:${String(m || 0).padStart(2, "0")}`;
+    };
+
+    const limparCampoCurto = (valor) =>
+      String(valor || "")
+        .split(/ rua | avenida | av\. | bairro | cidade | dia | vai | começa | comeca | inauguração | inauguracao | aniversário | aniversario | casamento | formatura /i)[0]
+        .replace(/[:\-]/g, "")
+        .trim();
+
+    const limparNomeExtraido = (valor) =>
+      String(valor || "")
+        .replace(/^\s*nome\s+completo\s*[:\-]?\s*/i, "")
+        .replace(/^\s*nome\s*[:\-]?\s*/i, "")
+        .replace(/^\s*cliente\s*[:\-]?\s*/i, "")
+        .replace(/^\s*contratante\s*[:\-]?\s*/i, "")
+        .replace(/^\s*completo\s*[:\-]?\s*/i, "")
+        .trim();
+
+    const pegarDepoisDaPalavra = (palavra) => {
+      const reg = new RegExp(`${palavra}\\s*[:\\-]?\\s*([a-zA-ZÀ-ÿ\\s]{2,60})`, "i");
+      const achou = texto.match(reg);
+      if (!achou) return "";
+      return limparCampoCurto(achou[1]);
+    };
+
+    const acharCPF = () => {
+      const grupos = String(texto).match(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/g) || [];
+      if (grupos.length > 0) return formatarCPF(apenasNumeros(grupos[0]));
+      return "";
+    };
+
+    const cpfExtraido = acharCPF();
+    const cpfNumeros = apenasNumeros(cpfExtraido);
+
+    const acharTelefone = () => {
+      const grupos = String(textoOriginal + "\n" + texto).match(/\+?\d[\d\s().-]{8,}\d/g) || [];
+
+      for (const grupo of grupos) {
+        let nums = apenasNumeros(grupo);
+        if (nums.startsWith("55") && nums.length >= 12) nums = nums.slice(2);
+
+        if (nums === cpfNumeros) continue;
+
+        if (nums.length === 11 && nums[2] === "9") return nums;
+        if (nums.length === 10) return nums;
+      }
+
+      return "";
+    };
+
+    let telefoneExtraido = acharTelefone();
+
+    const pegarDataInteligente = () => {
+      const dataPorRotulo = valorPorRotulo(["data do evento", "pra quando vai ser", "quando vai ser", "data"]);
+      const dataNormalizada = normalizarDataTexto(dataPorRotulo);
+      if (dataNormalizada) return dataNormalizada;
+
+      for (const linha of linhasTexto) {
+        const l = normalizarTexto(linha);
+        const nums = extrairNumeros(linha);
+
+        if (linha.includes("/") || l.includes("dia") || (nums.length === 2 && linha.trim().length <= 8)) {
+          if (nums.length >= 2 && nums[0] >= 1 && nums[0] <= 31 && nums[1] >= 1 && nums[1] <= 12) {
+            const ano = nums[2] ? (nums[2] < 100 ? 2000 + nums[2] : nums[2]) : new Date().getFullYear();
+            return `${ano}-${String(nums[1]).padStart(2, "0")}-${String(nums[0]).padStart(2, "0")}`;
+          }
+        }
+      }
+
+      const achou = texto.match(/(?:dia\s*)?(\d{1,2})[\/.\-\s](\d{1,2})(?:[\/.\-\s](\d{2,4}))?/i);
+      if (achou) {
+        const dia = Number(achou[1]);
+        const mes = Number(achou[2]);
+        const anoBruto = achou[3] ? Number(achou[3]) : new Date().getFullYear();
+        const ano = anoBruto < 100 ? 2000 + anoBruto : anoBruto;
+        if (dia >= 1 && dia <= 31 && mes >= 1 && mes <= 12) {
+          return `${ano}-${String(mes).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+        }
+      }
+
+      return "";
+    };
+
+    let dataExtraida = pegarDataInteligente();
+
+    let horaInicio = "";
+    let horaFim = "";
+    let quantidadeHoras = null;
+
+    const horaPorRotulo = valorPorRotulo(["vai começar que horas", "vai comecar que horas", "horário de início", "horario de inicio", "hora início", "hora inicio", "horário", "horario"]);
+    if (horaPorRotulo) horaInicio = normalizarHoraTexto(horaPorRotulo, textoApoio);
+
+    const duracaoPorRotulo = valorPorRotulo(["quantas horas", "duração", "duracao", "total de horas"]);
+    if (duracaoPorRotulo) {
+      const numsDuracao = extrairNumeros(duracaoPorRotulo);
+      const qtd = numsDuracao[0];
+      if (qtd > 0 && qtd <= 12) quantidadeHoras = qtd;
+    }
+
+    const textoHorario = normalizarTexto(textoApoio);
+
+    const faixaHorario = textoHorario.match(/(?:das?\s*)?(\d{1,2})\s*(?:h|:00)?\s*(?:as|ate|-|às|até)\s*(\d{1,2})\s*(?:h|:00)?/i);
+    if (faixaHorario) {
+      horaInicio = normalizarHora(faixaHorario[1], textoHorario);
+      horaFim = normalizarHora(faixaHorario[2], textoHorario);
+    }
+
+    if (!horaInicio) {
+      const inicioHorario = textoHorario.match(/(?:comeca|começa|inicio|início|horario|horário)\s*(?:as|às)?\s*(\d{1,2})/i);
+      if (inicioHorario) {
+        horaInicio = normalizarHora(inicioHorario[1], textoHorario);
+      }
+    }
+if (!horaInicio) {
+  const inicioHorario = textoHorario.match(/(?:comeca|começa|inicio|início|horario|horário)\s*(?:as|às)?\s*(\d{1,2})/i);
+  if (inicioHorario) {
+    horaInicio = normalizarHora(inicioHorario[1], textoHorario);
+  }
+}
+    const duracoes = [...textoHorario.matchAll(/(\d{1,2})\s*(hora|horas|hrs|h)\b/gi)];
+    for (const m of duracoes) {
+      const qtd = Number(m[1]);
+      const antes = textoHorario.slice(Math.max(0, m.index - 30), m.index);
+      const depois = textoHorario.slice(m.index, m.index + 35);
+      const pareceHorarioInicio =
+        antes.includes("comeca") ||
+        antes.includes("começa") ||
+        antes.includes("inicio") ||
+        antes.includes("início") ||
+        antes.includes("horario") ||
+        antes.includes("horário") ||
+        antes.trim().endsWith("as") ||
+        antes.trim().endsWith("às") ||
+        depois.includes("manha") ||
+        depois.includes("manhã") ||
+        depois.includes("tarde") ||
+        depois.includes("noite");
+
+      if (qtd > 0 && qtd <= 12 && !pareceHorarioInicio) {
+        quantidadeHoras = qtd;
+        break;
+      }
+    }
+
+    const totalDeHoras = textoHorario.match(/total\s+de\s+(\d{1,2})\s*(hora|horas|hrs|h)/i);
+    if (!quantidadeHoras && totalDeHoras) {
+      const qtd = Number(totalDeHoras[1]);
+      if (qtd > 0 && qtd <= 12) quantidadeHoras = qtd;
+    }
+
+    if (!horaFim && horaInicio && quantidadeHoras) {
+      horaFim = somarHoras(horaInicio, quantidadeHoras);
+    }
+
+    const idadePorRotulo = valorPorRotulo(["é 15 anos? se não for 15 anos é qual idade", "e 15 anos? se nao for 15 anos e qual idade", "idade", "qual idade"]);
+    const idadeNums = extrairNumeros(idadePorRotulo);
+    const idadeRotulo = idadeNums.length ? idadeNums[idadeNums.length - 1] : "";
+    const idadeMatch = textoApoio.match(/(\d{1,3})\s*(anos|aninhos|idade)/i);
+    const idade = idadeRotulo || (idadeMatch ? Number(idadeMatch[1]) : "");
+
+    const tipoEventoRotulo = valorPorRotulo(["tipo de evento", "qual é o tipo de evento", "qual e o tipo de evento", "evento"]);
+    let tipoEvento = "";
+    const tipoNormal = normalizarTexto(tipoEventoRotulo);
+    if (tipoNormal.includes("aniversario") || tipoNormal.includes("aniversário")) tipoEvento = "Aniversário";
+    else if (tipoNormal.includes("inauguracao") || tipoNormal.includes("inauguração")) tipoEvento = "Inauguração";
+    else if (tipoNormal.includes("casamento")) tipoEvento = "Casamento";
+    else if (tipoNormal.includes("formatura")) tipoEvento = "Formatura";
+    else if (tipoNormal.includes("confraternizacao") || tipoNormal.includes("confraternização")) tipoEvento = "Confraternização";
+    else if (tipoNormal.includes("empresa") || tipoNormal.includes("corporativo")) tipoEvento = "Evento corporativo";
+    else if (tipoNormal.includes("batizado")) tipoEvento = "Batizado";
+    else if (tipoNormal.includes("loja")) tipoEvento = "Evento em loja";
+
+    if (!tipoEvento) {
+      if (t.includes("inauguracao") || t.includes("inauguração")) tipoEvento = "Inauguração";
+      else if (t.includes("aniversario") || t.includes("aniversário") || idade) tipoEvento = idade ? `Aniversário de ${idade} anos` : "Aniversário";
+      else if (t.includes("casamento")) tipoEvento = "Casamento";
+      else if (t.includes("formatura")) tipoEvento = "Formatura";
+      else if (t.includes("confraternizacao") || t.includes("confraternização")) tipoEvento = "Confraternização";
+      else if (t.includes("empresa") || t.includes("corporativo")) tipoEvento = "Evento corporativo";
+      else if (t.includes("batizado")) tipoEvento = "Batizado";
+      else if (t.includes("loja")) tipoEvento = "Evento em loja";
+    }
+
+    if (tipoEvento === "Aniversário" && idade) tipoEvento = `Aniversário de ${idade} anos`;
+
+    const localEventoRotulo = valorPorRotulo(["será em buffet, casa ou local externo", "sera em buffet, casa ou local externo", "local do evento", "local"]);
+    let localEvento = "";
+    const localNormal = normalizarTexto(localEventoRotulo);
+    if (localNormal.includes("buffet")) localEvento = "Buffet";
+    else if (localNormal.includes("casa")) localEvento = "Casa";
+    else if (localNormal.includes("salao") || localNormal.includes("salão")) localEvento = "Salão de festa";
+    else if (localNormal.includes("loja")) localEvento = "Loja";
+    else if (localNormal.includes("externo") || localNormal.includes("ar livre")) localEvento = "Local externo";
+
+    if (!localEvento) {
+      if (t.includes("casa mesmo") || t.includes("em casa")) localEvento = "Casa";
+      else if (t.includes("salao") || t.includes("salão")) localEvento = "Salão de festa";
+      else if (t.includes("loja")) localEvento = "Loja";
+      else if (t.includes("buffet")) localEvento = "Buffet";
+      else if (t.includes("casa")) localEvento = "Casa";
+      else if (t.includes("lado de fora") || t.includes("externo") || t.includes("ar livre") || t.includes("praia") || t.includes("sitio") || t.includes("sítio")) localEvento = "Local externo";
+    }
+
+    let endereco = valorPorRotulo(["endereço do local do evento", "endereco do local do evento", "endereço", "endereco"]);
+    const enderecoMatch = textoApoio.match(/\b(rua|avenida|av\.?|travessa|tv\.?|alameda|rodovia|estrada)\s+(.{3,120})/i);
+    if (!endereco && enderecoMatch) {
+      endereco = `${enderecoMatch[1]} ${enderecoMatch[2]}`
+        .split(/ bairro | cidade | dia | vai | começa | comeca | inauguração | inauguracao | aniversário | aniversario | casamento | formatura | cpf | whatsapp /i)[0]
+        .trim();
+    }
+
+    const cidadeBairroRotulo = valorPorRotulo(["cidade / bairro", "cidade/bairro", "cidade e bairro"]);
+    let cidade = "";
+    let bairro = "";
+
+    if (cidadeBairroRotulo) {
+      const partes = cidadeBairroRotulo.split(/[,/|-]/).map((p) => p.trim()).filter(Boolean);
+      cidade = partes[0] || "";
+      bairro = partes.slice(1).join(" / ") || "";
+    }
+
+    if (!cidade) cidade = valorPorRotulo(["onde será", "onde sera", "cidade"] ) || pegarDepoisDaPalavra("cidade");
+    if (!bairro) bairro = valorPorRotulo(["bairro"] ) || pegarDepoisDaPalavra("bairro");
+
+    if (!bairro && endereco) {
+      const partesEndereco = endereco.split(/\s+/);
+      const ultimo = partesEndereco[partesEndereco.length - 1] || "";
+      if (ultimo.length > 3 && !/\d/.test(ultimo)) bairro = ultimo;
+    }
+
+    const cidadeFinal = [cidade, bairro].filter(Boolean).join(" / ") || form.cidade;
+
+    let nomeMelhorado = limparNomeExtraido(valorPorRotulo(["nome completo", "nome", "cliente", "contratante"]));
+    const nomeExplicito = texto.match(/(?:nome\s+completo|nome|cliente|contratante)\s*[:\-]?\s*([a-zA-ZÀ-ÿ\s]{6,80})/i);
+    if (!nomeMelhorado && nomeExplicito) nomeMelhorado = limparNomeExtraido(nomeExplicito[1]);
+
+    if (!nomeMelhorado) {
+      for (let i = linhasTexto.length - 1; i >= 0; i--) {
+        const linha = linhasTexto[i];
+        const l = normalizarTexto(linha);
+        const temNumero = extrairNumeros(linha).length > 0;
+
+        if (
+          !temNumero &&
+          linha.length > 6 &&
+          linha.split(" ").length >= 2 &&
+          !l.includes("rua") &&
+          !l.includes("avenida") &&
+          !l.includes("bairro") &&
+          !l.includes("cidade") &&
+          !l.includes("horas") &&
+          !l.includes("pessoas") &&
+          !l.includes("evento") &&
+          !l.includes("casa") &&
+          !l.includes("buffet") &&
+          !l.includes("salão") &&
+          !l.includes("salao") &&
+          !l.includes("loja") &&
+          !l.includes("festa") &&
+          !l.includes("inauguracao") &&
+          !l.includes("inauguração") &&
+          !l.includes("aniversario") &&
+          !l.includes("aniversário") &&
+          !l.includes("simples") &&
+          !l.includes("mesmo") &&
+          !l.includes("começa") &&
+          !l.includes("comeca")
+        ) {
+          nomeMelhorado = linha.trim();
+          break;
+        }
+      }
+    }
+
+    const aniversarianteLinha = procurarLinhaCom(texto, ["aniversariante", "nome da crianca", "nome da criança"]);
+    const aniversariante = limparResposta(aniversarianteLinha, ["nome do aniversariante", "aniversariante", "nome da criança", "nome da crianca"]);
+
+    let pacoteSugerido = "";
+    if (t.includes("projetor") || t.includes("telão") || t.includes("telao")) pacoteSugerido = "Pacote Projeção - Telão + Projetor";
+    else if (tipoEvento.includes("Aniversário")) {
+      if (idade && Number(idade) <= 12) pacoteSugerido = "Pacote Kids Festa Infantil - DJ + Som + Luz + Máquina de fumaça opcional";
+      else pacoteSugerido = "Pacote 02 de ENTRADA - DJ + Som + Iluminação + Máquina de fumaça opcional";
+    }
+    else if (tipoEvento === "Inauguração" || localEvento === "Loja") pacoteSugerido = "Pacote de ENTRADA 01 - DJ + Som";
+
+    const mensagemSugerida = nomeMelhorado
+      ? `Olá, ${nomeMelhorado}! Recebi as informações do seu evento para ${dataExtraida ? dataCurtaBR(dataExtraida) : "a data informada"}${horaInicio ? ` às ${horaInicio}` : ""}. Vou conferir o melhor pacote e já te retorno.`
+      : "";
+const duracaoForcada = (() => {
+  const textoHora = normalizarTexto(texto);
+  const achou = textoHora.match(/(\d{1,2})\s*(hora|horas|hrs)\b/i);
+  if (!achou) return null;
+
+  const qtd = Number(achou[1]);
+  return qtd > 0 && qtd <= 12 ? qtd : null;
+})();
+
+const horaFimFinal =
+  horaFim || (horaInicio && (quantidadeHoras || duracaoForcada) ? somarHorasTexto(horaInicio, quantidadeHoras || duracaoForcada) : "");
+    const obsExtras = [
+      form.obs,
+      localEvento ? `Local informado: ${localEvento}` : "",
+      quantidadeHoras ? `Duração informada: ${quantidadeHoras} hora(s)` : "",
+      idade ? `Idade informada: ${idade} anos` : "",
+      aniversariante ? `Nome do aniversariante: ${aniversariante}` : "",
+      pacoteSugerido ? `Sugestão de pacote: ${pacoteSugerido}` : "",
+      mensagemSugerida ? `Mensagem sugerida para o cliente: ${mensagemSugerida}` : "",
+      t.includes("coberto") ? "Cliente informou que o local é coberto." : "",
+      t.includes("lado de fora") ? "Cliente informou que será do lado de fora." : "",
+      "Dados extraídos da conversa do WhatsApp."
+    ].filter(Boolean).join(String.fromCharCode(10));
+
+    setForm({
+      ...form,
+      nome: nomeMelhorado || form.nome,
+      cpf: cpfExtraido || form.cpf,
+      whatsapp: telefoneExtraido || form.whatsapp,
+      tipoEvento: tipoEvento || form.tipoEvento,
+      data: dataExtraida || form.data,
+      horaInicio: horaInicio || form.horaInicio,
+      horaFim: horaFimFinal || form.horaFim,
+      endereco: endereco || form.endereco,
+      cidade: cidadeFinal,
+      bairro: bairro || form.bairro || "",
+      pacote: form.pacote || pacoteSugerido,
+      valor: form.valor || (pacoteInfo(pacoteSugerido)?.valor ? String(pacoteInfo(pacoteSugerido).valor) : form.valor),
+      entrada: campoFoiPreenchido(form.entrada) ? String(form.entrada) : (pacoteInfo(pacoteSugerido)?.entrada ? String(pacoteInfo(pacoteSugerido).entrada) : "0"),
+      formaEntrada: form.formaEntrada || (pacoteInfo(pacoteSugerido) ? "Pix" : form.formaEntrada),
+      formaPagamento: form.formaPagamento || (pacoteInfo(pacoteSugerido) ? "Entrada / sinal" : form.formaPagamento),
+      obs: obsExtras
+    });
+
+    setTextoWhatsApp(textoOriginal);
+    setAba("cadastro");
+    alert("Extração concluída! Confira os campos antes de salvar.");
+  };
+
+  const limpar = () => {
+    setForm(formInicial);
+    setEditandoId(null);
+  };
+
+  const exportarBackup = () => {
+    const dados = {
+      sistema: "JP Eventos",
+      versao: "10.0 profissional",
+      dataBackup: new Date().toLocaleString("pt-BR"),
+      eventos
+    };
+
+    const blob = new Blob([JSON.stringify(dados, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `backup_jp_eventos_${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importarBackup = (arquivo) => {
+    if (!arquivo) return;
+
+    const leitor = new FileReader();
+
+    leitor.onload = (ev) => {
+      try {
+        const dados = JSON.parse(ev.target.result);
+        const novosEventos = Array.isArray(dados) ? dados : dados.eventos;
+
+        if (!Array.isArray(novosEventos)) {
+          alert("Arquivo de backup inválido.");
+          return;
+        }
+
+        const confirmar = confirm("Deseja importar este backup? OK para substituir os dados atuais.");
+
+        if (confirmar) {
+          setEventos(novosEventos);
+          alert("Backup importado com sucesso!");
+        }
+      } catch (erro) {
+        alert("Não foi possível ler o arquivo de backup.");
+      }
+    };
+
+    leitor.readAsText(arquivo);
+  };
+
+  const apagarTudo = () => {
+    const confirmar = confirm("Tem certeza que deseja apagar TODOS os eventos? Faça um backup antes.");
+    if (!confirmar) return;
+
+    const confirmarDeNovo = confirm("Confirma mesmo? Essa ação apaga todos os dados salvos neste navegador.");
+    if (!confirmarDeNovo) return;
+
+    setEventos([]);
+    localStorage.removeItem("eventos");
+    alert("Todos os eventos foram apagados.");
+  };
+
+  const salvar = () => {
+    if (!form.nome || !form.whatsapp || !form.tipoEvento || !form.data) {
+      alert("Preencha pelo menos nome, WhatsApp, tipo de evento e data.");
+      return;
+    }
+
+    const dadosEvento = {
+      ...form,
+      horaInicio: normalizarHorarioManual(form.horaInicio) || form.horaInicio,
+      horaFim: normalizarHorarioManual(form.horaFim) || form.horaFim,
+      status: form.status || "pre",
+      quitado:
+        form.status === "pre"
+          ? false
+          : form.formaPagamento === "Valor total" ||
+            form.formaPagamento === "Valor total à vista" ||
+            (Number(form.valor || 0) > 0 && Number(form.entrada || 0) >= Number(form.valor || 0))
+            ? true
+            : Boolean(form.quitado),
+      executado: Boolean(form.executado)
+    };
+
+    if (editandoId) {
+      const atualizados = eventos.map((e) =>
+        e.id === editandoId
+          ? {
+              ...dadosEvento,
+              id: editandoId,
+              dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR"),
+              historico: [
+                criarRegistroHistorico("Cadastro atualizado", dadosEvento.status === "confirmado" ? "Reserva confirmada" : "Pré-reserva/proposta"),
+                ...(Array.isArray(e.historico) ? e.historico : [])
+              ].slice(0, 50)
+            }
+          : e
+      );
+      setEventos(atualizados);
+    } else {
+      const novo = {
+        ...dadosEvento,
+        id: criarIdSeguro(),
+        dataCadastro: new Date().toLocaleString("pt-BR"),
+        historico: [criarRegistroHistorico("Cadastro criado", dadosEvento.status === "confirmado" ? "Reserva confirmada" : "Pré-reserva/proposta")]
+      };
+      setEventos([novo, ...eventos]);
+    }
+
+    limpar();
+    setAba("eventos");
+  };
+
+  const excluirEvento = (id) => {
+    if (confirm("Tem certeza que deseja excluir este cadastro?")) {
+      setEventos(eventos.filter((e) => e.id !== id));
+    }
+  };
+
+  const editarEvento = (evento) => {
+    setForm({ ...formInicial, ...evento });
+    setEditandoId(evento.id);
+    setAba("cadastro");
+  };
+
+  const toggleExecutado = (id) => {
+    setEventos((lista) =>
+      lista.map((e) =>
+        e.id === id
+          ? {
+              ...e,
+              executado: !e.executado,
+              historico: [
+                criarRegistroHistorico(!e.executado ? "Evento marcado como executado" : "Evento desmarcado como executado"),
+                ...(Array.isArray(e.historico) ? e.historico : [])
+              ].slice(0, 50)
+            }
+          : e
+      )
+    );
+  };
+
+  const marcarQuitado = (id, quitado) => {
+    const registro = criarRegistroHistorico(quitado ? "Marcado como pago" : "Marcado como pendente", quitado ? "Pagamento confirmado" : "Pagamento em aberto");
+    setEventos((lista) =>
+      lista.map((e) =>
+        e.id === id
+          ? {
+              ...e,
+              quitado,
+              status: quitado ? "confirmado" : e.status,
+              historico: [registro, ...(Array.isArray(e.historico) ? e.historico : [])].slice(0, 50)
+            }
+          : e
+      )
+    );
+  };
+
+  const calcularDuracao = (inicio, fim) => {
+    const inicioNormal = normalizarHorarioManual(inicio);
+    const fimNormal = normalizarHorarioManual(fim);
+
+    if (!inicioNormal || !fimNormal) return "Não informado";
+
+    const [h1, m1] = inicioNormal.split(":").map(Number);
+    const [h2, m2] = fimNormal.split(":").map(Number);
+
+    if ([h1, m1, h2, m2].some((v) => Number.isNaN(v))) return "Não informado";
+
+    let diferenca = h2 * 60 + m2 - (h1 * 60 + m1);
+    if (diferenca < 0) diferenca += 24 * 60;
+
+    const horas = Math.floor(diferenca / 60);
+    const minutos = diferenca % 60;
+
+    if (horas <= 0 && minutos <= 0) return "Não informado";
+    if (minutos === 0) return `${horas} horas`;
+    return `${horas}h ${minutos}min`;
+  };
+
+  const abrirWhatsApp = (evento) => {
+    const numero = typeof evento === "string" ? evento : evento.whatsapp;
+    if (!numero) {
+      alert("WhatsApp não informado.");
+      return;
+    }
+
+    let numeroLimpo = numero.replace(/\D/g, "");
+    if (!numeroLimpo.startsWith("55")) numeroLimpo = `55${numeroLimpo}`;
+
+    const mensagem =
+      typeof evento === "string"
+        ? "Olá! Tudo bem?"
+        : `Olá, ${evento.nome}! Tudo bem? Passando para falar sobre o evento ${evento.tipoEvento} marcado para ${dataCurtaBR(evento.data)} às ${evento.horaInicio || "horário combinado"}.`;
+
+    window.open(`https://wa.me/${numeroLimpo}?text=${encodeURIComponent(mensagem)}`, "_blank");
+  };
+
+  const pedirNumeroWhatsApp = (evento, titulo = "Enviar WhatsApp") => {
+    const numeroAtual = String(evento?.whatsapp || "").replace(/\D/g, "");
+    const numeroDigitado = prompt(
+      `${titulo}\n\nConfirme ou altere o WhatsApp de envio:\n(Use DDD + número. Ex: 85999999999)`,
+      numeroAtual
+    );
+
+    if (numeroDigitado === null) return null;
+
+    let numeroLimpo = String(numeroDigitado || "").replace(/\D/g, "");
+
+    if (!numeroLimpo) {
+      alert("WhatsApp não informado.");
+      return null;
+    }
+
+    if (!numeroLimpo.startsWith("55")) numeroLimpo = `55${numeroLimpo}`;
+    return numeroLimpo;
+  };
+
+  const abrirWhatsAppComMensagem = (evento, mensagem, titulo, acaoHistorico, detalheHistorico = "") => {
+    const numeroFinal = pedirNumeroWhatsApp(evento, titulo);
+    if (!numeroFinal) return;
+
+    if (acaoHistorico) registrarHistoricoEvento(evento, acaoHistorico, detalheHistorico);
+    window.open(`https://wa.me/${numeroFinal}?text=${encodeURIComponent(mensagem)}`, "_blank");
+  };
+
+  const abrirWhatsAppCobrarSinal = (evento) => {
+    const total = Number(evento.valor || 0);
+    const entrada = Number(evento.entrada || 0);
+    const sinalSugerido = pacoteInfo(pegarPacoteFinal(evento))?.entrada || entrada || 0;
+    const valorSinal = entrada > 0 ? entrada : sinalSugerido;
+
+    const mensagem = [
+      `Olá, ${evento.nome || "tudo bem"}! 😊`,
+      "",
+      `Passando para confirmar a reserva da data do seu evento ${evento.tipoEvento || ""} para ${evento.data ? dataCurtaBR(evento.data) : "a data combinada"}.`,
+      total > 0 ? `Valor total: ${moeda(total)}` : "",
+      valorSinal > 0 ? `Para garantir a data, o sinal de reserva fica em ${moeda(valorSinal)}.` : "Para garantir a data, preciso da confirmação do sinal combinado.",
+      "",
+      "Assim que o sinal for confirmado, eu deixo sua data bloqueada na agenda e seguimos com o contrato. 🙌"
+    ].filter(Boolean).join("\n");
+
+    abrirWhatsAppComMensagem(evento, mensagem, "Cobrar sinal", "Cobrança de sinal enviada", `Sinal: ${moeda(valorSinal)}`);
+  };
+
+  const abrirWhatsAppLembrarPagamento = (evento) => {
+    const total = Number(evento.valor || 0);
+    const entrada = Number(evento.entrada || 0);
+    const pendente = evento.quitado ? 0 : Math.max(total - entrada, 0);
+
+    const mensagem = [
+      `Olá, ${evento.nome || "tudo bem"}! 😊`,
+      "",
+      `Passando para lembrar sobre o pagamento do evento ${evento.tipoEvento || ""} marcado para ${evento.data ? dataCurtaBR(evento.data) : "a data combinada"}.`,
+      `Valor total: ${moeda(total)}`,
+      `Entrada/sinal: ${moeda(entrada)}`,
+      `Saldo pendente: ${moeda(pendente)}`,
+      "",
+      "Quando puder, me confirma por aqui a melhor forma de concluir o pagamento. Obrigado! 🙌"
+    ].filter(Boolean).join("\n");
+
+    abrirWhatsAppComMensagem(evento, mensagem, "Lembrar pagamento", "Lembrete de pagamento enviado", `Saldo pendente: ${moeda(pendente)}`);
+  };
+
+  const abrirWhatsAppConfirmarEvento = (evento) => {
+    const mensagem = [
+      `Olá, ${evento.nome || "tudo bem"}! 😊`,
+      "",
+      `Passando para confirmar os dados do evento ${evento.tipoEvento || ""}:`,
+      `📅 Data: ${evento.data ? dataCurtaBR(evento.data) : "a confirmar"}`,
+      `⏰ Horário: ${normalizarHorarioManual(evento.horaInicio) || evento.horaInicio || "a confirmar"} às ${normalizarHorarioManual(evento.horaFim) || evento.horaFim || "a confirmar"}`,
+      `📍 Endereço: ${evento.endereco || "a confirmar"}`,
+      `Cidade/bairro: ${cidadeBairroFinal(evento)}`,
+      "",
+      "Está tudo certo para o evento? Qualquer ajuste, me avisa por aqui. 🙌"
+    ].filter(Boolean).join("\n");
+
+    abrirWhatsAppComMensagem(evento, mensagem, "Confirmar evento", "Confirmação de evento enviada", "Mensagem de confirmação enviada pelo WhatsApp");
+  };
+
+  // Mantém compatibilidade com botões antigos, se existirem.
+  const abrirWhatsAppCobranca = abrirWhatsAppLembrarPagamento;
+  const abrirWhatsAppLembrete = abrirWhatsAppConfirmarEvento;
+
+  const abrirGoogleAgenda = (evento) => {
+    if (!evento.data) {
+      alert("Data não informada.");
+      return;
+    }
+
+    const data = evento.data.replaceAll("-", "");
+    const horaInicio = (evento.horaInicio || "12:00").replace("h", ":").replace(/\D/g, "").padEnd(4, "0");
+    const horaFim = (evento.horaFim || "13:00").replace("h", ":").replace(/\D/g, "").padEnd(4, "0");
+    const dataInicio = `${data}T${horaInicio}00`;
+    const dataFim = `${data}T${horaFim}00`;
+    const titulo = `${textoStatusCurto(evento)} - ${evento.nome} - ${evento.tipoEvento}`;
+    const total = Number(evento.valor || 0);
+    const entrada = Number(evento.entrada || 0);
+    const pendente = Math.max(total - entrada, 0);
+    const avisoAgenda = reservaConfirmada(evento)
+      ? "✅ EVENTO CONFIRMADO: cliente fechado."
+      : temSinal(evento)
+        ? "🟠 PRÉ-RESERVA COM SINAL: conferir se já deve virar contrato oficial."
+        : "⚠️ PRÉ-RESERVA SEM PAGAMENTO: data NÃO garantida. Conferir retorno do cliente.";
+    const detalhes = [
+      avisoAgenda,
+      "",
+      `Cliente: ${evento.nome}`,
+      `WhatsApp: ${evento.whatsapp}`,
+      `Pacote: ${evento.pacote === "Outro" ? evento.pacotePersonalizado : evento.pacote}`,
+      `Valor total: ${moeda(total)}`,
+      `Sinal/entrada: ${moeda(entrada)}`,
+      `Saldo pendente: ${moeda(pendente)}`,
+      `Status: ${textoStatus(evento)}`
+    ].join("\n");
+
+    const url =
+      "https://www.google.com/calendar/render?action=TEMPLATE" +
+      `&text=${encodeURIComponent(titulo)}` +
+      `&dates=${dataInicio}/${dataFim}` +
+      `&details=${encodeURIComponent(detalhes)}` +
+      `&location=${encodeURIComponent(evento.endereco || "")}`;
+
+    registrarHistoricoEvento(evento, "Google Agenda aberto", textoStatusCurto(evento));
+    window.open(url, "_blank");
+  };
+
+  const textoCompleto = (e) => {
+    const total = Number(e.valor || 0);
+    const entrada = Number(e.entrada || 0);
+    const pendente = e.quitado ? 0 : Math.max(total - entrada, 0);
+
+    return [
+      `Nome: ${e.nome}`,
+      `CPF: ${e.cpf || "Não informado"}`,
+      `WhatsApp: ${e.whatsapp}`,
+      `Tipo do evento: ${e.tipoEvento}`,
+      `Data do evento: ${dataBR(e.data)}`,
+      `Horário: ${normalizarHorarioManual(e.horaInicio) || e.horaInicio || "Não informado"} às ${normalizarHorarioManual(e.horaFim) || e.horaFim || "Não informado"}`,
+      `Duração: ${calcularDuracao(e.horaInicio, e.horaFim)}`,
+      `Endereço: ${e.endereco || "Não informado"}`,
+      `Cidade / bairro: ${cidadeBairroFinal(e)}`,
+      `Pacote: ${e.pacote === "Outro" ? e.pacotePersonalizado : e.pacote || "Não informado"}`,
+      `Valor total: ${moeda(total)}`,
+      `Entrada / sinal: ${moeda(entrada)}`,
+      `Forma da entrada: ${e.formaEntrada || "Não informada"}`,
+      `Forma de pagamento: ${e.formaPagamento || "Não informada"}`,
+      e.parcelas ? `Parcelas: ${e.parcelas}` : "",
+      `Pendente: ${moeda(pendente)}`,
+      `Status: ${textoStatus(e)}`,
+      `Observações: ${limparObservacoesInternas(e.obs) || "Nenhuma"}`,
+      `Data do cadastro: ${e.dataCadastro || "Não informado"}`
+    ]
+      .filter(Boolean)
+      .join("\n");
+  };
+
+  const abrirRecibo = (evento) => {
+    setReciboAberto(evento);
+    setTipoRecibo("sinal");
+    setPagamentoRecibo(evento.formaEntrada || evento.formaPagamento || "Pix");
+  };
+
+  const pacoteSugeridoDasObservacoes = (obs) => {
+    const linha = String(obs || "")
+      .split("\n")
+      .find((item) => normalizarTexto(item).includes("sugestao de pacote"));
+
+    if (!linha) return "";
+    return linha.split(":").slice(1).join(":").trim();
+  };
+
+  const prepararEventoDocumento = (evento = {}) => {
+    const pacoteSugerido = pacoteSugeridoDasObservacoes(evento.obs);
+    const pacoteDocumento = evento.pacote || pacoteSugerido || "";
+    const infoPacote = pacoteInfo(pacoteDocumento);
+    const horaInicioNormal = normalizarHorarioManual(evento.horaInicio);
+    const horaFimNormal = normalizarHorarioManual(evento.horaFim);
+
+    // Importante: valor 0 também é um valor válido.
+    // Antes, quando entrada era 0, o sistema voltava para o sinal sugerido do pacote.
+    const temValorManual = campoFoiPreenchido(evento.valor);
+
+    const temEntradaManual = campoFoiPreenchido(evento.entrada);
+
+    return {
+      ...formInicial,
+      ...evento,
+      nome: evento.nome || "Cliente não informado",
+      tipoEvento: evento.tipoEvento || "Evento não informado",
+      pacote: pacoteDocumento,
+      pacotePersonalizado: evento.pacotePersonalizado || "",
+      valor: temValorManual ? String(evento.valor) : (infoPacote ? String(infoPacote.valor) : "0"),
+      // Entrada/sinal em branco significa R$ 0,00. Nunca volta sozinho para o sinal sugerido.
+      entrada: temEntradaManual ? String(evento.entrada) : "0",
+      horaInicio: horaInicioNormal || evento.horaInicio || "",
+      horaFim: horaFimNormal || evento.horaFim || "",
+      formaEntrada: evento.formaEntrada || "Pix",
+      formaPagamento: evento.formaPagamento || "Entrada / sinal",
+      status: evento.status || "pre"
+    };
+  };
+
+  const gerarDocumentoEvento = (e, tipo = "contrato") => {
+    const ehProposta = tipo === "proposta";
+    const doc = new jsPDF();
+    const total = Number(e.valor || 0);
+    const entrada = Number(e.entrada || 0);
+    const pendente = e.quitado ? 0 : Math.max(total - entrada, 0);
+    const pacoteFinal = e.pacote === "Outro" ? e.pacotePersonalizado : e.pacote || "Não informado";
+    const hojeContrato = new Date().toLocaleDateString("pt-BR");
+    const obsLimpa = limparObservacoesInternas(e.obs);
+
+    const margem = 14;
+    const larguraPagina = 210;
+    const larguraConteudo = 182;
+    let y = 0;
+
+    const limparNomeArquivo = (nome) =>
+      String(nome || "cliente")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9]/g, "_")
+        .replace(/_+/g, "_")
+        .toLowerCase();
+
+    const tituloDocumento = ehProposta
+      ? "PROPOSTA DE SERVIÇO DE EVENTO"
+      : "CONTRATO DE PRESTAÇÃO DE SERVIÇO";
+
+    const novaPagina = () => {
+      doc.addPage();
+      desenharCabecalho(false);
+      y = 42;
+    };
+
+    const garantirEspaco = (alturaNecessaria) => {
+      if (y + alturaNecessaria > 275) novaPagina();
+    };
+
+    const texto = (conteudo, x, posY, opcoes = {}) => {
+      doc.text(String(conteudo || ""), x, posY, opcoes);
+    };
+
+    const desenharCabecalho = (primeiraPagina = true) => {
+      doc.setFillColor(20, 24, 38);
+      doc.rect(0, 0, larguraPagina, primeiraPagina ? 42 : 30, "F");
+
+      doc.setFillColor(108, 43, 217);
+      doc.rect(0, 0, 6, primeiraPagina ? 42 : 30, "F");
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(primeiraPagina ? 16 : 12);
+      texto(primeiraPagina ? tituloDocumento : `JP Eventos - ${ehProposta ? "Proposta" : "Contrato"}`, 105, primeiraPagina ? 17 : 16, { align: "center" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      texto("@JP Eventos Fortaleza | @Vdj JeanMix", 105, primeiraPagina ? 27 : 23, { align: "center" });
+      if (primeiraPagina) texto("WhatsApp: (85) 98708-3412", 105, 34, { align: "center" });
+
+      doc.setTextColor(0, 0, 0);
+    };
+
+    const secao = (titulo) => {
+      garantirEspaco(14);
+      doc.setFillColor(245, 243, 255);
+      doc.setDrawColor(108, 43, 217);
+      doc.roundedRect(margem, y, larguraConteudo, 9, 2, 2, "FD");
+      doc.setTextColor(55, 48, 163);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      texto(titulo, margem + 4, y + 6.2);
+      doc.setTextColor(0, 0, 0);
+      y += 13;
+    };
+
+    const campo = (rotulo, valor) => {
+      const conteudo = `${rotulo}: ${valor || "Não informado"}`;
+      const linhas = doc.splitTextToSize(conteudo, larguraConteudo - 6);
+      garantirEspaco(linhas.length * 6 + 3);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      const primeiraLinha = linhas[0] || "";
+      const posDoisPontos = primeiraLinha.indexOf(":");
+
+      if (posDoisPontos >= 0) {
+        texto(primeiraLinha.slice(0, posDoisPontos + 1), margem, y);
+        doc.setFont("helvetica", "normal");
+        texto(primeiraLinha.slice(posDoisPontos + 1).trim(), margem + 58, y);
+      } else {
+        texto(primeiraLinha, margem, y);
+      }
+
+      doc.setFont("helvetica", "normal");
+      for (let i = 1; i < linhas.length; i += 1) {
+        y += 6;
+        texto(linhas[i], margem + 58, y);
+      }
+      y += 7;
+    };
+
+    const paragrafo = (conteudo) => {
+      const linhas = doc.splitTextToSize(String(conteudo || ""), larguraConteudo);
+      garantirEspaco(linhas.length * 6 + 4);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.text(linhas, margem, y);
+      y += linhas.length * 6 + 4;
+    };
+
+    const linhaSeparadora = () => {
+      garantirEspaco(5);
+      doc.setDrawColor(220, 220, 230);
+      doc.line(margem, y, margem + larguraConteudo, y);
+      y += 6;
+    };
+
+    desenharCabecalho(true);
+    y = 52;
+
+    doc.setFillColor(250, 250, 252);
+    doc.setDrawColor(230, 230, 240);
+    doc.roundedRect(margem, y - 6, larguraConteudo, 22, 3, 3, "FD");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    texto(`${ehProposta ? "Cliente" : "Contratante"}: ${e.nome || "Não informado"}`, margem + 5, y + 1);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    texto(`Evento: ${e.tipoEvento || "Não informado"} | Data: ${dataBR(e.data)}`, margem + 5, y + 9);
+    texto(ehProposta ? "Documento para análise e confirmação. A data só fica garantida após o sinal combinado." : "Documento oficial de contratação do serviço.", margem + 5, y + 16);
+    y += 27;
+
+    secao(ehProposta ? "DADOS DO CLIENTE" : "DADOS DO CONTRATANTE");
+    campo("Nome", e.nome);
+    campo("CPF", e.cpf || "Não informado");
+    campo("WhatsApp", e.whatsapp);
+
+    secao("DADOS DO EVENTO");
+    campo("Tipo do evento", e.tipoEvento);
+    campo("Data do evento", dataBR(e.data));
+    campo("Horário", `${normalizarHorarioManual(e.horaInicio) || e.horaInicio || "Não informado"} às ${normalizarHorarioManual(e.horaFim) || e.horaFim || "Não informado"}`);
+    campo("Duração", calcularDuracao(e.horaInicio, e.horaFim));
+    campo("Endereço", e.endereco || "Não informado");
+    campo("Cidade / bairro", cidadeBairroFinal(e));
+    campo(ehProposta ? "Pacote proposto" : "Pacote contratado", pacoteFinal);
+
+    secao(ehProposta ? "VALORES DA PROPOSTA" : "DADOS FINANCEIROS");
+    campo("Valor total", moeda(total));
+    campo("Sinal para reserva da data", moeda(entrada));
+    campo("Forma da entrada", e.formaEntrada || "Não informada");
+    campo("Forma de pagamento", e.formaPagamento || "Não informada");
+    if (e.parcelas) campo("Parcelas", e.parcelas);
+    campo("Saldo pendente", moeda(pendente));
+
+    secao("OBSERVAÇÕES");
+    paragrafo(limparObservacoesInternas(e.obs) || "Nenhuma observação informada.");
+
+    linhaSeparadora();
+    secao(ehProposta ? "CONDIÇÕES DA PROPOSTA" : "CLÁUSULAS DO CONTRATO");
+
+    const textoReserva = entrada > 0
+      ? `O sinal informado para reserva da data é de ${moeda(entrada)}. A data somente ficará garantida após a confirmação do pagamento do sinal e aceite da proposta.`
+      : "A data ainda não está garantida sem confirmação do sinal ou pagamento combinado.";
+
+    const itens = ehProposta
+      ? [
+          `1. Esta proposta apresenta os dados, pacote e valores sugeridos para o evento informado pelo cliente.`,
+          `2. ${textoReserva}`,
+          "3. Os valores podem sofrer alteração caso haja mudança de endereço, horário, duração, estrutura, pacote ou necessidade técnica adicional.",
+          "4. Após o aceite do cliente e confirmação do sinal, esta proposta poderá ser convertida em contrato oficial de prestação de serviço.",
+          "5. O saldo restante deverá ser quitado conforme combinado entre as partes, preferencialmente até o dia do evento.",
+          "6. Esta proposta não substitui o contrato oficial quando houver confirmação definitiva da contratação."
+        ]
+      : [
+          entrada > 0
+            ? `1. O CONTRATANTE declara estar ciente de que o valor pago a título de entrada/sinal, no valor de ${moeda(entrada)}, confirma a reserva da data do evento e não será devolvido em caso de desistência, cancelamento ou quebra do acordo por parte do CONTRATANTE.`
+            : e.quitado
+              ? `1. Em caso de desistência, cancelamento ou quebra do acordo por parte do CONTRATANTE, será retido 50% do valor total contratado, correspondente a ${moeda(total * 0.5)}, por se tratar da reserva da data e bloqueio da agenda do CONTRATADO.`
+              : "1. Tratando-se de pré-reserva sem pagamento, não haverá cobrança de cancelamento. A data poderá ser liberada pelo CONTRATADO caso não haja confirmação do sinal ou pagamento combinado.",
+          "2. O saldo restante deverá ser quitado integralmente até a data do evento, preferencialmente antes do início da prestação do serviço. A ausência de quitação poderá impedir a realização do serviço.",
+          "3. O CONTRATANTE se responsabiliza por fornecer endereço correto, horário correto, local adequado para montagem dos equipamentos e acesso seguro da equipe ao espaço do evento.",
+          "4. O CONTRATANTE é responsável pela segurança dos equipamentos e da equipe durante o evento. Danos, extravios, quedas, quebras ou prejuízos causados por convidados, terceiros ou pelo próprio CONTRATANTE deverão ser ressarcidos integralmente.",
+          "5. Em caso de chuva, vento forte, instabilidade elétrica ou qualquer situação que comprometa a segurança da estrutura, o CONTRATANTE deverá providenciar local coberto e protegido. Não havendo condições seguras, o serviço poderá ser suspenso sem responsabilidade do CONTRATADO.",
+          "6. Alterações de horário, endereço, pacote ou duração do evento deverão ser combinadas previamente entre as partes e poderão gerar ajuste de valor conforme a necessidade operacional.",
+          "7. Em caso de atraso no início do evento por responsabilidade do CONTRATANTE, convidados, local ou terceiros, o horário contratado permanecerá contando a partir do horário combinado, podendo haver cobrança adicional para extensão do serviço.",
+          "8. O CONTRATANTE deverá garantir ponto de energia elétrica adequado, seguro e compatível com os equipamentos. Quedas de energia, oscilações, tomadas inadequadas, extensões defeituosas ou ausência de energia no local não serão responsabilidade do CONTRATADO."
+        ];
+
+    itens.forEach((item) => paragrafo(item));
+
+    garantirEspaco(52);
+    y += 4;
+    texto(`Fortaleza/CE, ${hojeContrato}`, margem, y);
+    y += 14;
+
+    try {
+      doc.addImage(assinatura, "PNG", margem + 7, y, 55, 25);
+    } catch {
+      // Caso a imagem de assinatura não carregue, o documento continua sendo gerado normalmente.
+    }
+
+    y += 29;
+    doc.setDrawColor(0, 0, 0);
+    doc.line(margem, y, margem + 82, y);
+    y += 6;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    texto("Jean Carlos da Silva", margem + 41, y, { align: "center" });
+    y += 5;
+    doc.setFont("helvetica", "normal");
+    texto("Responsável JP Eventos", margem + 41, y, { align: "center" });
+
+    doc.line(margem + 100, y - 11, margem + 182, y - 11);
+    doc.setFont("helvetica", "bold");
+    texto(e.nome || (ehProposta ? "Cliente" : "Contratante"), margem + 141, y - 5, { align: "center" });
+    doc.setFont("helvetica", "normal");
+    texto(ehProposta ? "Aceite do cliente" : "Contratante", margem + 141, y, { align: "center" });
+
+    const totalPaginas = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPaginas; i += 1) {
+      doc.setPage(i);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(120, 120, 130);
+      texto(`Página ${i} de ${totalPaginas}`, 196, 290, { align: "right" });
+      texto(`JP Eventos Fortaleza - ${ehProposta ? "Proposta" : "Contrato"} gerado automaticamente pelo sistema | CPF/CNPJ contratante: ${e.cpf || "não informado"}`, margem, 290);
+      doc.setTextColor(0, 0, 0);
+    }
+
+    const prefixo = ehProposta ? "proposta_servico_evento" : "contrato_premium";
+    doc.save(`${prefixo}_${limparNomeArquivo(e.nome)}.pdf`);
+  };
+
+  const gerarProposta = (evento = form) => {
+    try {
+      registrarHistoricoEvento(evento, "Proposta PDF gerada", `${pegarPacoteFinal(evento) || "Pacote não informado"} - ${moeda(Number(evento.valor || 0))}`);
+      gerarDocumentoEvento(prepararEventoDocumento(evento), "proposta");
+    } catch (erro) {
+      console.error("Erro ao gerar proposta:", erro);
+      alert(`Não foi possível gerar a proposta. Verifique os dados e tente novamente. Detalhe: ${erro?.message || erro}`);
+    }
+  };
+
+  const gerarContrato = (evento = form) => {
+    try {
+      registrarHistoricoEvento(evento, "Contrato PDF gerado", `${pegarPacoteFinal(evento) || "Pacote não informado"} - ${moeda(Number(evento.valor || 0))}`);
+      gerarDocumentoEvento(prepararEventoDocumento(evento), "contrato");
+    } catch (erro) {
+      console.error("Erro ao gerar contrato:", erro);
+      alert(`Não foi possível gerar o contrato. Verifique os dados e tente novamente. Detalhe: ${erro?.message || erro}`);
+    }
+  };
+
+  const gerarRecibo = () => {
+    if (!reciboAberto) return;
+
+    const e = reciboAberto;
+    const doc = new jsPDF();
+    const total = Number(e.valor || 0);
+    const entrada = Number(e.entrada || 0);
+    const pendente = tipoRecibo === "total" ? 0 : Math.max(total - entrada, 0);
+    const valorRecibo = tipoRecibo === "sinal" ? entrada : total;
+    const titulo = tipoRecibo === "sinal" ? "RECIBO DE SINAL / ENTRADA" : "RECIBO DE PAGAMENTO TOTAL";
+
+    doc.setFillColor(30, 60, 150);
+    doc.rect(0, 0, 210, 50, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text(titulo, 105, 22, { align: "center" });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(12);
+    doc.text("@JP Eventos Fortaleza | @Vdj JeanMix", 105, 32, { align: "center" });
+    doc.text("WhatsApp: (85) 98708-3412", 105, 40, { align: "center" });
+    doc.setTextColor(0, 0, 0);
+
+    let y = 70;
+    const linhas = [
+      `Recebi de: ${e.nome}`,
+      `CPF: ${e.cpf || "Não informado"}`,
+      `WhatsApp: ${e.whatsapp}`,
+      `Tipo do evento: ${e.tipoEvento}`,
+      `Data do evento: ${dataBR(e.data)}`,
+      `Horário: ${normalizarHorarioManual(e.horaInicio) || e.horaInicio || "Não informado"} às ${normalizarHorarioManual(e.horaFim) || e.horaFim || "Não informado"}`,
+      `Endereço: ${e.endereco || "Não informado"}`,
+      `Cidade / bairro: ${cidadeBairroFinal(e)}`,
+      `Pacote: ${e.pacote === "Outro" ? e.pacotePersonalizado : e.pacote || "Não informado"}`,
+      `Tipo do recibo: ${tipoRecibo === "sinal" ? "Sinal / Entrada" : "Pagamento total"}`,
+      `Forma de pagamento: ${pagamentoRecibo}`,
+      `Valor deste recibo: ${moeda(valorRecibo)}`,
+      `Valor total do evento: ${moeda(total)}`,
+      `Entrada / sinal: ${moeda(entrada)}`,
+      `Pendente: ${moeda(pendente)}`
+    ];
+
+    linhas.forEach((linha) => {
+      doc.text(linha, 14, y);
+      y += 7;
+    });
+
+    y += 10;
+    const texto =
+      tipoRecibo === "sinal"
+        ? `Declaro que recebi o valor de ${moeda(valorRecibo)} referente ao sinal/entrada para reserva da data do evento acima descrito.`
+        : `Declaro que recebi o valor total de ${moeda(valorRecibo)} referente à prestação de serviço para o evento acima descrito.`;
+
+    const textoQuebrado = doc.splitTextToSize(texto, 180);
+    doc.text(textoQuebrado, 14, y);
+    y += textoQuebrado.length * 7 + 15;
+    doc.text(`Fortaleza/CE, ${new Date().toLocaleDateString("pt-BR")}`, 14, y);
+    y += 15;
+    doc.addImage(assinatura, "PNG", 20, y, 55, 25);
+    y += 28;
+    doc.line(14, y, 95, y);
+    y += 7;
+    doc.text("Jean Carlos da Silva", 54, y, { align: "center" });
+    y += 6;
+    doc.text("Assinatura / responsável", 54, y, { align: "center" });
+
+    doc.save(`recibo_${tipoRecibo}_${e.nome}.pdf`);
+
+    if (tipoRecibo === "total") {
+      marcarQuitado(e.id, true);
+    }
+
+    setReciboAberto(null);
+  };
+
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+
+  const diasAteData = (data) => {
+    if (!data) return null;
+    const [ano, mes, dia] = data.split("-");
+    const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
+    dataEvento.setHours(0, 0, 0, 0);
+    return Math.ceil((dataEvento - hoje) / (1000 * 60 * 60 * 24));
+  };
+
+  const diasDesdeCadastro = (evento) => {
+    if (!evento?.id || Number.isNaN(Number(evento.id))) return 0;
+    return Math.max(0, Math.floor((Date.now() - Number(evento.id)) / (1000 * 60 * 60 * 24)));
+  };
+
+  const agendaOrdenada = useMemo(() => {
+    return [...eventos].sort((a, b) => {
+      const dataA = `${a.data || "9999-12-31"} ${a.horaInicio || "00:00"}`;
+      const dataB = `${b.data || "9999-12-31"} ${b.horaInicio || "00:00"}`;
+      return new Date(dataA) - new Date(dataB);
+    });
+  }, [eventos]);
+
+  const eventosFuturos = agendaOrdenada.filter((e) => {
+    if (!e.data) return false;
+    const [ano, mes, dia] = e.data.split("-");
+    const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
+    return dataEvento >= hoje;
+  });
+
+  const proximoEvento = eventosFuturos[0];
+
+  const lembretes = eventosFuturos.filter((e) => {
+    const [ano, mes, dia] = e.data.split("-");
+    const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
+    const dias = Math.ceil((dataEvento - hoje) / (1000 * 60 * 60 * 24));
+    return dias >= 0 && dias <= 7;
+  });
+
+  const preReservasProximas = eventosFuturos.filter((e) => {
+    if (!ehPreCadastro(e)) return false;
+    const dias = diasAteData(e.data);
+    return dias !== null && dias >= 0 && dias <= 3;
+  });
+
+  const clientesSumidos = eventosFuturos.filter((e) => ehPreCadastro(e) && diasDesdeCadastro(e) >= 2);
+
+  const pendentesFinanceiros = eventos
+    .filter((e) => !ehPreCadastro(e) && !e.quitado && Number(e.valor || 0) > Number(e.entrada || 0))
+    .sort((a, b) => String(a.data || "9999-12-31").localeCompare(String(b.data || "9999-12-31")));
+
+  const abrirEventoRapido = (evento) => {
+    if (!evento) return;
+    setBusca(evento.nome || evento.whatsapp || evento.tipoEvento || "");
+    setFiltroStatus("todos");
+    setAba("eventos");
+  };
+
+  const confirmarFechamentoSemSinal = (evento) => {
+    const sinal = Number(campoFoiPreenchido(evento?.entrada) ? evento.entrada : 0);
+    if (sinal > 0) return true;
+
+    return confirm(
+      `Atenção: este cliente está sem sinal/entrada registrada.\n\n` +
+        `Cliente: ${evento?.nome || "Não informado"}\n` +
+        `Valor total: ${moeda(evento?.valor || 0)}\n` +
+        `Sinal/entrada: ${moeda(0)}\n\n` +
+        `Tem certeza que deseja fechar e gerar contrato sem sinal?`
+    );
+  };
+
+  const fecharComCliente = (evento) => {
+    if (!confirmarFechamentoSemSinal(evento)) return;
+
+    const registro = criarRegistroHistorico("Cliente fechado", "Reserva confirmada e contrato gerado");
+    const atualizado = {
+      ...evento,
+      status: "confirmado",
+      quitado:
+        evento.formaPagamento === "Valor total" ||
+        evento.formaPagamento === "Valor total à vista" ||
+        (Number(evento.valor || 0) > 0 && Number(evento.entrada || 0) >= Number(evento.valor || 0)),
+      historico: [registro, ...(Array.isArray(evento.historico) ? evento.historico : [])].slice(0, 50)
+    };
+
+    if (evento.id) {
+      setEventos((lista) => lista.map((item) => (item.id === evento.id ? atualizado : item)));
+    }
+
+    gerarDocumentoEvento(prepararEventoDocumento(atualizado), "contrato");
+  };
+
+  const liberarData = (evento) => {
+    if (!evento?.id) return;
+    const confirmar = confirm(`Deseja liberar a data de ${evento.nome || "cliente"}? O cadastro será removido da agenda.`);
+    if (!confirmar) return;
+    setEventos((lista) => lista.filter((item) => item.id !== evento.id));
+  };
+
+  const eventosNaMesmaData = form.data ? eventos.filter((e) => e.data === form.data && e.id !== editandoId) : [];
+
+  const listaFiltrada = eventos.filter((e) => {
+    const texto = normalizarTexto(busca);
+    const statusPagamento = ehPreCadastro(e)
+      ? "pre reserva pré reserva pre cadastro pré cadastro data reservada reserva"
+      : e.quitado
+        ? "pago quitado recebido"
+        : "pendente aberto falta pagar";
+
+    const conteudo = `
+      ${e.nome || ""}
+      ${e.cpf || ""}
+      ${e.whatsapp || ""}
+      ${e.tipoEvento || ""}
+      ${e.data || ""}
+      ${dataBR(e.data) || ""}
+      ${e.pacote || ""}
+      ${e.pacotePersonalizado || ""}
+      ${e.obs || ""}
+      ${e.endereco || ""}
+      ${cidadeBairroFinal(e) || ""}
+      ${e.formaEntrada || ""}
+      ${e.formaPagamento || ""}
+      ${e.parcelas || ""}
+      ${statusPagamento}
+      ${e.executado ? "executado realizado" : "nao executado"}
+    `;
+
+    const passouBusca = normalizarTexto(conteudo).includes(texto);
+    const passouFiltro =
+      filtroStatus === "todos" ||
+      filtroStatus === statusEvento(e) ||
+      (filtroStatus === "executado" && e.executado) ||
+      (filtroStatus === "naoExecutado" && !e.executado);
+
+    return passouBusca && passouFiltro;
+  });
+
+  const totalRecebido = eventos.filter((e) => e.quitado).reduce((acc, e) => acc + Number(e.valor || 0), 0);
+  const totalEntradas = eventos.reduce((acc, e) => acc + Number(e.entrada || 0), 0);
+  const totalPendente = eventos
+    .filter((e) => !e.quitado)
+    .reduce((acc, e) => acc + Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0), 0);
+  const eventosPagos = eventos.filter((e) => e.quitado).length;
+  const eventosPendentes = eventos.filter((e) => !ehPreCadastro(e) && !e.quitado).length;
+  const eventosPreReserva = eventos.filter((e) => ehPreCadastro(e)).length;
+  const faturamentoTotal = eventos.reduce((acc, e) => acc + Number(e.valor || 0), 0);
+
+  const custoTotal = eventos.reduce((acc, e) => acc + Number(e.custo || 0), 0);
+  const lucroTotal = faturamentoTotal - custoTotal;
+  const sinaisRecebidos = eventos.reduce((acc, e) => acc + Number(e.entrada || 0), 0);
+  const faturamentoFuturo = eventosFuturos.reduce((acc, e) => acc + Number(e.valor || 0), 0);
+  const saldoReceberFuturo = eventosFuturos.reduce((acc, e) => acc + (e.quitado ? 0 : Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0)), 0);
+  const faturamentoMesAgenda = eventos
+    .filter((e) => {
+      if (!e.data) return false;
+      const [ano, mes] = e.data.split("-").map(Number);
+      return ano === hoje.getFullYear() && mes - 1 === hoje.getMonth();
+    })
+    .reduce((acc, e) => acc + Number(e.valor || 0), 0);
+  const custosMesAgenda = eventos
+    .filter((e) => {
+      if (!e.data) return false;
+      const [ano, mes] = e.data.split("-").map(Number);
+      return ano === hoje.getFullYear() && mes - 1 === hoje.getMonth();
+    })
+    .reduce((acc, e) => acc + Number(e.custo || 0), 0);
+  const lucroMesEstimado = faturamentoMesAgenda - custosMesAgenda;
+  const ticketMedio = eventos.filter((e) => reservaConfirmada(e)).length > 0
+    ? faturamentoTotal / eventos.filter((e) => reservaConfirmada(e)).length
+    : 0;
+  const totalPropostas = eventos.filter((e) => ehPreCadastro(e)).length;
+  const totalFechados = eventos.filter((e) => reservaConfirmada(e)).length;
+  const taxaConversao = eventos.length > 0 ? Math.round((totalFechados / eventos.length) * 100) : 0;
+
+  const rankingClientes = Object.values(
+    eventos.reduce((acc, e) => {
+      const chave = normalizarTexto(e.nome || "Cliente sem nome");
+      if (!acc[chave]) {
+        acc[chave] = { nome: e.nome || "Cliente sem nome", qtd: 0, total: 0, fechados: 0 };
+      }
+      acc[chave].qtd += 1;
+      acc[chave].total += Number(e.valor || 0);
+      if (reservaConfirmada(e)) acc[chave].fechados += 1;
+      return acc;
+    }, {})
+  ).sort((a, b) => b.qtd - a.qtd || b.total - a.total);
+
+  const historicoRecente = eventos
+    .flatMap((e) =>
+      (Array.isArray(e.historico) ? e.historico : []).map((h) => ({ ...h, cliente: e.nome, eventoId: e.id }))
+    )
+    .slice(0, 20);
+
+  const saldoHoje = eventos
+    .filter((e) => {
+      if (!e.data || !e.quitado) return false;
+      const [ano, mes, dia] = e.data.split("-");
+      const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
+      return dataEvento.getTime() === hoje.getTime();
+    })
+    .reduce((acc, e) => acc + Number(e.valor || 0), 0);
+
+  const quinzeDiasAtras = new Date(hoje);
+  quinzeDiasAtras.setDate(hoje.getDate() - 15);
+
+  const saldo15Dias = eventos
+    .filter((e) => {
+      if (!e.data || !e.quitado) return false;
+      const [ano, mes, dia] = e.data.split("-");
+      const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
+      return dataEvento >= quinzeDiasAtras && dataEvento <= hoje;
+    })
+    .reduce((acc, e) => acc + Number(e.valor || 0), 0);
+
+  const saldoMes = eventos
+    .filter((e) => {
+      if (!e.data || !e.quitado) return false;
+      const [ano, mes, dia] = e.data.split("-");
+      const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
+      return dataEvento.getMonth() === hoje.getMonth() && dataEvento.getFullYear() === hoje.getFullYear();
+    })
+    .reduce((acc, e) => acc + Number(e.valor || 0), 0);
+
+  const eventosDoMes = eventos.filter((e) => {
+    if (!e.data) return false;
+    const [ano, mes] = e.data.split("-").map(Number);
+    return ano === anoCalendario && mes - 1 === mesCalendario;
+  });
+
+  const primeiroDiaMes = new Date(anoCalendario, mesCalendario, 1).getDay();
+  const ultimoDiaMes = new Date(anoCalendario, mesCalendario + 1, 0).getDate();
+  const diasCalendario = [
+    ...Array.from({ length: primeiroDiaMes }, () => null),
+    ...Array.from({ length: ultimoDiaMes }, (_, i) => i + 1)
+  ];
+
+  const nomesMeses = [
+    "janeiro",
+    "fevereiro",
+    "março",
+    "abril",
+    "maio",
+    "junho",
+    "julho",
+    "agosto",
+    "setembro",
+    "outubro",
+    "novembro",
+    "dezembro"
+  ];
+
+  const nomeMes = `${nomesMeses[mesCalendario]} de ${anoCalendario}`;
+
+  const mudarMes = (direcao) => {
+    const novaData = new Date(anoCalendario, mesCalendario + direcao, 1);
+    setMesCalendario(novaData.getMonth());
+    setAnoCalendario(novaData.getFullYear());
+    setDiaSelecionado(null);
+  };
+
+  const eventosDoDiaSelecionado = diaSelecionado
+    ? eventosDoMes.filter((e) => Number(e.data.split("-")[2]) === diaSelecionado)
+    : [];
+
+  const CardEvento = ({ e }) => (
+    <div style={{ ...estilos.card, borderColor: corStatus(e) }}>
+      <strong style={{ color: e.executado ? "limegreen" : "white", fontSize: 18 }}>{e.nome}</strong>
+      <br />
+      Tipo do evento: {e.tipoEvento}
+      <br />
+      <span style={{ color: "deepskyblue" }}>Data: {dataBR(e.data)}</span>
+      <br />
+      Horário: {normalizarHorarioManual(e.horaInicio) || e.horaInicio || "Não informado"} às {normalizarHorarioManual(e.horaFim) || e.horaFim || "Não informado"}
+      <br />
+      Duração: {calcularDuracao(e.horaInicio, e.horaFim)}
+      <br />
+      WhatsApp: {e.whatsapp}
+      <br />
+      Pacote: {e.pacote === "Outro" ? e.pacotePersonalizado : e.pacote || "Não informado"}
+      <br />
+      Endereço: {e.endereco || "Não informado"}
+      <br />
+      Cidade / bairro: {cidadeBairroFinal(e)}
+      <br />
+      {e.obs && (
+        <>
+          Observações: {e.obs}
+          <br />
+        </>
+      )}
+      <span style={{ color: "deepskyblue" }}>
+        Valor total: {moeda(Number(e.valor || 0))}
+        <br />
+        Entrada / sinal: {moeda(Number(e.entrada || 0))}
+        <br />
+        Forma da entrada: {e.formaEntrada || "Não informada"}
+        <br />
+        Forma de pagamento: {e.formaPagamento || "Não informada"}
+        <br />
+        {e.parcelas && (
+          <>
+            Parcelas: {e.parcelas}
+            <br />
+          </>
+        )}
+      </span>
+      <span style={{ color: corStatus(e), fontWeight: "bold" }}>
+        Pendente: {e.quitado ? moeda(0) : moeda(Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0))}
+        <br />
+        Status: {textoStatus(e)}
+      </span>
+      <br />
+      {resumoHistorico(e).length > 0 && (
+        <details style={{ marginTop: 8, marginBottom: 8 }}>
+          <summary style={{ cursor: "pointer", color: "#c4b5fd", fontWeight: "bold" }}>Histórico rápido</summary>
+          {resumoHistorico(e).map((h) => (
+            <div key={h.id} style={{ fontSize: 13, borderBottom: "1px solid #374151", padding: "4px 0" }}>
+              {h.data} - {h.acao}{h.detalhe ? `: ${h.detalhe}` : ""}
+            </div>
+          ))}
+        </details>
+      )}
+      <button style={estilos.botaoRoxo} onClick={() => gerarProposta(e)}>Proposta PDF</button>
+      <button style={estilos.botao} onClick={() => gerarContrato(e)}>Contrato</button>
+      <button style={estilos.botao} onClick={() => abrirRecibo(e)}>Recibo</button>
+      <button style={estilos.botao} onClick={() => abrirWhatsApp(e)}>WhatsApp</button>
+      <button style={estilos.botao} onClick={() => abrirWhatsAppCobrarSinal(e)}>Cobrar sinal</button>
+      <button style={estilos.botao} onClick={() => abrirWhatsAppLembrarPagamento(e)}>Lembrar pagamento</button>
+      <button style={estilos.botao} onClick={() => abrirWhatsAppConfirmarEvento(e)}>Confirmar evento</button>
+      <button style={estilos.botaoRoxo} onClick={() => abrirWhatsAppProposta(e)}>Enviar proposta completa</button>
+      <button
+        style={estilos.botao}
+        onClick={() => {
+          navigator.clipboard.writeText(mensagemComPreco(e));
+          alert("Mensagem profissional copiada!");
+        }}
+      >
+        Copiar proposta
+      </button>
+      <button style={estilos.botao} onClick={() => abrirGoogleAgenda(e)}>📅 Google Agenda</button>
+      <button
+        style={estilos.botao}
+        onClick={() => {
+          navigator.clipboard.writeText(textoCompleto(e));
+          alert("Cadastro copiado!");
+        }}
+      >
+        Copiar
+      </button>
+      <button style={estilos.botao} onClick={() => editarEvento(e)}>✏️ Editar</button>
+      <button style={estilos.botao} onClick={() => marcarQuitado(e.id, true)}>Marcar pago</button>
+      <button style={estilos.botao} onClick={() => marcarQuitado(e.id, false)}>Marcar pendente</button>
+      <button style={estilos.botaoRoxo} onClick={() => fecharComCliente(e)}>Fechar com cliente</button>
+      <button style={estilos.botao} onClick={() => setEventos((lista) => lista.map((ev) => (ev.id === e.id ? { ...ev, status: "pre", quitado: false, historico: [criarRegistroHistorico("Voltou para pré-reserva", "Reserva deixou de estar confirmada"), ...(Array.isArray(ev.historico) ? ev.historico : [])].slice(0, 50) } : ev)))}>Voltar para pré-reserva</button>
+      <button style={estilos.botao} onClick={() => setEventos((lista) => lista.map((ev) => (ev.id === e.id ? { ...ev, status: "confirmado", historico: [criarRegistroHistorico("Reserva confirmada", "Status alterado manualmente"), ...(Array.isArray(ev.historico) ? ev.historico : [])].slice(0, 50) } : ev)))}>Confirmar reserva</button>
+      <button style={{ ...estilos.botao, background: "#92400e" }} onClick={() => liberarData(e)}>Liberar data</button>
+      <button style={estilos.botao} onClick={() => toggleExecutado(e.id)}>
+        {e.executado ? "✔ Executado" : "Marcar executado"}
+      </button>
+      <button style={{ ...estilos.botao, background: "#991b1b" }} onClick={() => excluirEvento(e.id)}>Excluir</button>
+    </div>
+  );
+
+  return (
+    <div style={estilos.pagina}>
+      <h1 style={estilos.titulo}>JP Eventos</h1>
+      <p style={estilos.subtitulo}>Cadastro, agenda, contratos, recibos e financeiro</p>
+
+      <div style={{ ...estilos.card, borderColor: bancoStatus.startsWith("Online") ? "#22c55e" : bancoStatus.startsWith("Erro") ? "#ef4444" : "#6c2bd9", padding: 10 }}>
+        <strong>☁️ Banco online:</strong> {bancoStatus}
+      </div>
+
+      <input
+        placeholder="Buscar por cliente, data, status, cidade, pacote..."
+        value={busca}
+        onChange={(e) => {
+          setBusca(e.target.value);
+          setAba("eventos");
+        }}
+        style={estilos.input}
+      />
+
+      <div style={{ marginBottom: 20 }}>
+        <button
+          style={estilos.botaoRoxo}
+          onClick={() => setMenuAberto(!menuAberto)}
+        >
+          ☰ Menu
+        </button>
+
+        {menuAberto && (
+          <div style={{ marginTop: 10 }}>
+            {[
+              ["cadastro", "Cadastro"],
+              ["eventos", "Eventos"],
+              ["agenda", "Agenda"],
+              ["dashboard", "Painel"],
+              ["financeiro", "Financeiro"],
+              ["config", "Configurações"]
+            ].map(([id, nome]) => (
+              <button
+                key={id}
+                onClick={() => {
+                  setAba(aba === id ? "" : id);
+                  setMenuAberto(false);
+                }}
+                style={estilos.botao}
+              >
+                {nome}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {aba === "config" && (
+        <div style={{ ...estilos.card, display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <div>
+            <strong>💾 Segurança dos dados</strong><br />
+            <span style={{ color: "#c4b5fd" }}>Faça backup para não perder seus cadastros.</span>
+          </div>
+          <div>
+            <button style={estilos.botaoRoxo} onClick={exportarBackup}>Baixar backup</button>
+            <button style={estilos.botao} onClick={() => sincronizarEventosNoBanco(eventos)}>Forçar sincronização online</button>
+            <button style={estilos.botao} onClick={() => inputBackupRef.current?.click()}>Importar backup</button>
+            <input
+              ref={inputBackupRef}
+              type="file"
+              accept="application/json"
+              style={{ display: "none" }}
+              onChange={(e) => importarBackup(e.target.files?.[0])}
+            />
+          </div>
+        </div>
+      )}
+
+      {aba === "" && (
+        <>
+          {proximoEvento && (
+            <div
+              style={{ ...estilos.card, cursor: "pointer", borderColor: corStatus(proximoEvento) }}
+              onClick={() => abrirEventoRapido(proximoEvento)}
+              title="Clique para abrir este cadastro"
+            >
+              <h3>🔥 Próximo evento</h3>
+              <strong>{proximoEvento.nome}</strong><br />
+              {dataBR(proximoEvento.data)}<br />
+              {proximoEvento.tipoEvento}<br />
+              <span style={{ color: corStatus(proximoEvento) }}>{textoStatus(proximoEvento)}</span>
+              <br />
+              <small style={{ color: "#c4b5fd" }}>Clique aqui para abrir o cadastro</small>
+            </div>
+          )}
+
+          {preReservasProximas.length > 0 && (
+            <div style={{ ...estilos.card, background: "#3a2e00", borderColor: "orange" }}>
+              <h3>⚠️ Pré-reservas próximas sem confirmação</h3>
+              <p>Esses clientes ainda não fecharam e o evento está chegando.</p>
+              {preReservasProximas.map((e) => (
+                <button
+                  key={e.id}
+                  style={{ ...estilos.botao, display: "block", width: "100%", textAlign: "left" }}
+                  onClick={() => abrirEventoRapido(e)}
+                >
+                  {dataCurtaBR(e.data)} - {e.nome} - {e.tipoEvento}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {clientesSumidos.length > 0 && (
+            <div style={{ ...estilos.card, background: "#3a1f00", borderColor: "#f59e0b" }}>
+              <h3>🧠 Clientes sem retorno há 2 dias ou mais</h3>
+              <p>Pré-reservas que precisam de follow-up para não perder venda.</p>
+              {clientesSumidos.slice(0, 6).map((e) => (
+                <button
+                  key={e.id}
+                  style={{ ...estilos.botao, display: "block", width: "100%", textAlign: "left" }}
+                  onClick={() => abrirEventoRapido(e)}
+                >
+                  {e.nome} - {diasDesdeCadastro(e)} dia(s) sem fechamento - {dataCurtaBR(e.data)}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div style={estilos.card}>
+            <h3>💰 Financeiro rápido</h3>
+            <p>Recebido: {moeda(totalRecebido)}</p>
+            <p>Pendente: {moeda(totalPendente)}</p>
+            {pendentesFinanceiros.length > 0 && (
+              <>
+                <strong>Atalhos de pendentes:</strong>
+                {pendentesFinanceiros.slice(0, 5).map((e) => (
+                  <button
+                    key={e.id}
+                    style={{ ...estilos.botao, display: "block", width: "100%", textAlign: "left" }}
+                    onClick={() => abrirEventoRapido(e)}
+                  >
+                    {e.nome} - pendente {moeda(Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0))}
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {aba !== "" && lembretes.length > 0 && (
+        <div style={{ ...estilos.card, background: "#3a2e00", borderColor: "orange" }}>
+          <strong>🔔 Lembrete:</strong> você tem {lembretes.length} evento(s) nos próximos 7 dias.
+          {preReservasProximas.length > 0 && (
+            <p>⚠️ {preReservasProximas.length} pré-reserva(s) vencendo em até 3 dias sem confirmação.</p>
+          )}
+          <button style={estilos.botao} onClick={() => setAba("agenda")}>Ver agenda</button>
+        </div>
+      )}
+
+      {aba === "cadastro" && (
+        <>
+          <h2>{editandoId ? "Editar cadastro" : "Novo cadastro"}</h2>
+
+          <div style={{ ...estilos.card, borderColor: "#22c55e" }}>
+            <h3>🤖 Importar conversa do WhatsApp</h3>
+            <p>Cole aqui a resposta do cliente. O sistema tenta preencher data, horário, endereço, cidade, tipo de evento e observações.</p>
+
+            <button style={estilos.botao} onClick={copiarPerguntasPadrao}>
+  Copiar perguntas padrão
+</button>
+
+            <input
+              style={estilos.input}
+              placeholder="WhatsApp do cliente, caso não venha automático"
+              value={form.whatsapp || ""}
+              onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
+            />
+
+            <textarea
+              style={estilos.textarea}
+              placeholder="Cole aqui a conversa ou resposta do cliente..."
+              value={textoWhatsApp}
+              onChange={(e) => setTextoWhatsApp(e.target.value)}
+            />
+
+            <button style={estilos.botaoRoxo} onClick={extrairDadosWhatsApp}>
+              Extrair dados e preencher cadastro
+            </button>
+
+            <button style={estilos.botao} onClick={() => setTextoWhatsApp("")}>
+              Limpar conversa
+            </button>
+
+            <button
+              style={{ ...estilos.botao, background: "#991b1b" }}
+              onClick={() => {
+                setTextoWhatsApp("");
+                limpar();
+              }}
+            >
+              Limpar conversa e cadastro
+            </button>
+          </div>
+
+          <label style={{ fontWeight: "bold" }}>NOME:</label>
+<input style={estilos.input} value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} />
+
+<label style={{ fontWeight: "bold" }}>CPF:</label>
+<input style={estilos.input} value={form.cpf} onChange={(e) => setForm({ ...form, cpf: e.target.value })} />
+
+<label style={{ fontWeight: "bold" }}>WHATSAPP:</label>
+<input style={estilos.input} value={form.whatsapp} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} />
+
+<label style={{ fontWeight: "bold" }}>TIPO DE EVENTO:</label>
+<input style={estilos.input} value={form.tipoEvento} onChange={(e) => setForm({ ...form, tipoEvento: e.target.value })} />
+
+<label style={{ fontWeight: "bold" }}>DATA DO EVENTO:</label>
+<input style={estilos.input} type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} />
+
+<label style={{ fontWeight: "bold" }}>HORA INÍCIO:</label>
+<input style={estilos.input} placeholder="Ex: 14, 14h ou 14:00" value={form.horaInicio} onChange={(e) => setForm({ ...form, horaInicio: e.target.value })} onBlur={() => setForm((atual) => ({ ...atual, horaInicio: normalizarHorarioManual(atual.horaInicio) || atual.horaInicio }))} />
+
+<label style={{ fontWeight: "bold" }}>HORA FIM:</label>
+<input style={estilos.input} placeholder="Ex: 17, 17h ou 17:00" value={form.horaFim} onChange={(e) => setForm({ ...form, horaFim: e.target.value })} onBlur={() => setForm((atual) => ({ ...atual, horaFim: normalizarHorarioManual(atual.horaFim) || atual.horaFim }))} />
+
+<label style={{ fontWeight: "bold" }}>ENDEREÇO:</label>
+<input style={estilos.input} value={form.endereco} onChange={(e) => setForm({ ...form, endereco: e.target.value })} />
+
+<label style={{ fontWeight: "bold" }}>CIDADE / BAIRRO:</label>
+<input
+  style={estilos.input}
+  placeholder="Ex: Fortaleza / João XXIII"
+  value={cidadeBairroFinal(form) === "Não informado" ? "" : cidadeBairroFinal(form)}
+  onChange={(e) => {
+    const valor = e.target.value;
+    const partes = valor.split(/[,/|-]/).map((p) => p.trim()).filter(Boolean);
+    setForm({
+      ...form,
+      cidade: partes[0] || valor,
+      bairro: partes.slice(1).join(" / ") || ""
+    });
+  }}
+/>
+
+        {form.data && eventosNaMesmaData.length > 0 && (
+            <div style={{ background: "#3a2e00", color: "yellow", padding: 10, borderRadius: 8, marginBottom: 10, border: "1px solid orange", fontWeight: "bold" }}>
+              ⚠️ Já existe(m) {eventosNaMesmaData.length} evento(s) cadastrado(s) nessa data.
+            </div>
+          )}
+
+          
+          <label style={{ fontWeight: "bold" }}>PACOTE:</label><select style={estilos.input} value={form.pacote} onChange={(e) => {
+            const pacoteEscolhido = e.target.value;
+            const info = pacoteInfo(pacoteEscolhido);
+            setForm({
+              ...form,
+              pacote: pacoteEscolhido,
+              // O pacote mostra a sugestão, mas não apaga valor/sinal que você já digitou manualmente.
+              valor: campoFoiPreenchido(form.valor) ? form.valor : (info ? String(info.valor) : ""),
+              entrada: campoFoiPreenchido(form.entrada) ? form.entrada : "0",
+              formaEntrada: info && !form.formaEntrada ? "Pix" : form.formaEntrada,
+              formaPagamento: info && !form.formaPagamento ? "Entrada / sinal" : form.formaPagamento
+            });
+          }}>  <option value="">Selecione o pacote</option>
+            <option value="Pacote de ENTRADA 01 - DJ + Som">Pacote de ENTRADA 01 - DJ + Som</option>
+            <option value="Pacote 02 de ENTRADA - DJ + Som + Iluminação + Máquina de fumaça opcional">Pacote 02 de ENTRADA - DJ + Som + Iluminação + Máquina de fumaça opcional</option>
+            <option value="Pacote 03 Completo - DJ + Som + Iluminação Top + Máquina de fumaça opcional">Pacote 03 Completo - DJ + Som + Iluminação Top + Máquina de fumaça opcional</option>
+            <option value="Pacote 04 - Som + Luz + Máquina de fumaça opcional + DJ/VJ mixando vídeo na TV">Pacote 04 - Som + Luz + Máquina de fumaça opcional + DJ/VJ mixando vídeo na TV</option>
+            <option value="Pacote 05 - Som + Luz + Máquina de fumaça + DJ/VJ mixando vídeo no telão">Pacote 05 - Som + Luz + Máquina de fumaça + DJ/VJ mixando vídeo no telão</option>
+            <option value="Pacote Kids Festa Infantil - DJ + Som + Luz + Máquina de fumaça opcional">Pacote Kids Festa Infantil - DJ + Som + Luz + Máquina de fumaça opcional</option>
+            <option value="Pacote Projeção - Telão + Projetor">Pacote Projeção - Telão + Projetor</option>
+            <option value="Pacote Kids Criancinha Projeção - DJ + Som + Luz + Máquina de fumaça opcional + DJ mixando ao vivo no telão">Pacote Kids Criancinha Projeção - DJ + Som + Luz + Máquina de fumaça opcional + DJ mixando ao vivo no telão</option>
+            <option value="Pacote Kids Festa Infantil Projeção - DJ + Som + Luz + Máquina de fumaça opcional + DJ mixando ao vivo no telão">Pacote Kids Festa Infantil Projeção - DJ + Som + Luz + Máquina de fumaça opcional + DJ mixando ao vivo no telão</option>
+            <option value="Pacote Kids Festa Infantil Projeção - Telão + Projetor + Caixa de som ativa + Tripé + 2 microfones sem fio">Pacote Kids Festa Infantil Projeção - Telão + Projetor + Caixa de som ativa + Tripé + 2 microfones sem fio</option>
+            <option value="Aluguel de equipamentos">Aluguel de equipamentos</option>
+            <option value="Outro">Outro</option>
+          </select>
+
+          {form.pacote === "Outro" && (
+            <input style={estilos.input} placeholder="Digite o pacote personalizado" value={form.pacotePersonalizado || ""} onChange={(e) => setForm({ ...form, pacotePersonalizado: e.target.value })} />
+          )}
+
+          {form.pacote && pacoteInfo(form.pacote) && (
+            <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20, 83, 45, 0.28)" }}>
+              <strong>🚀 Automação profissional ativada</strong><br />
+              Valor final da proposta: {moeda(campoFoiPreenchido(form.valor) ? form.valor : pacoteInfo(form.pacote).valor)} | Sinal: {moeda(campoFoiPreenchido(form.entrada) ? form.entrada : 0)}
+              <br />
+              <span style={{ color: "#bbf7d0" }}>Sugestão original do pacote: {moeda(pacoteInfo(form.pacote).valor)} | Sinal sugerido: {moeda(pacoteInfo(form.pacote).entrada)}</span>
+              <br />
+              <span style={{ color: "#bbf7d0" }}>{pacoteInfo(form.pacote).descricao}</span>
+              <br />
+              <button style={estilos.botaoRoxo} onClick={confirmarValorManual}>Confirmar valor manual</button>
+              <button style={estilos.botao} onClick={() => aplicarValorDoPacote(form.pacote)}>Usar sugestão original do pacote</button>
+              <button
+                style={estilos.botao}
+                onClick={() => setForm({ ...form, pacote: "", pacotePersonalizado: "" })}
+              >
+                Limpar / trocar pacote mantendo valor
+              </button>
+              <button style={estilos.botao} onClick={copiarMensagemPreco}>Copiar mensagem com preço</button>
+              <button style={estilos.botao} onClick={() => abrirWhatsAppProposta(form)}>Enviar proposta no WhatsApp</button>
+            </div>
+          )}
+
+          <label style={{ fontWeight: "bold" }}>VALOR TOTAL:</label><input ref={valorInputRef} style={estilos.input} placeholder="Digite aqui o valor final combinado" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} />
+          <label style={{ fontWeight: "bold" }}>ENTRADA / SINAL:</label><input ref={entradaInputRef} style={estilos.input} placeholder="Digite aqui o sinal combinado" value={form.entrada} onChange={(e) => setForm({ ...form, entrada: e.target.value })} />
+          <label style={{ fontWeight: "bold" }}>CUSTO DO EVENTO:</label><input style={estilos.input} placeholder="Ex: transporte, ajudante, aluguel, combustível..." value={form.custo || ""} onChange={(e) => setForm({ ...form, custo: e.target.value })} />
+          <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20, 83, 45, 0.20)" }}>
+            <strong>📈 Lucro estimado:</strong> {moeda(Number(form.valor || 0) - Number(form.custo || 0))}
+            <br />
+            <span style={{ color: "#bbf7d0" }}>Esse cálculo usa Valor Total - Custo do Evento.</span>
+          </div>
+<label style={{ fontWeight: "bold" }}>FORMA DA ENTRADA / SINAL:</label>
+          <select style={estilos.input} value={form.formaEntrada || ""} onChange={(e) => setForm({ ...form, formaEntrada: e.target.value })}>
+            <option value="">Forma da entrada / sinal</option>
+            <option value="Pix">Pix</option>
+            <option value="Dinheiro">Dinheiro</option>
+            <option value="Cartão de débito">Cartão de débito</option>
+            <option value="Cartão de crédito">Cartão de crédito</option>
+            <option value="Transferência bancária">Transferência bancária</option>
+          </select>
+<label style={{ fontWeight: "bold" }}>FORMA DE PAGAMENTO:</label>
+          <select style={estilos.input} value={form.formaPagamento || ""} onChange={(e) => setForm({ ...form, formaPagamento: e.target.value })}>
+            <option value="">Selecione a forma de pagamento</option>
+            <option value="Entrada / sinal">Entrada / sinal</option>
+            <option value="Valor total">Valor total</option>
+            <option value="Pix">Pix</option>
+            <option value="Dinheiro">Dinheiro</option>
+            <option value="Cartão de débito">Cartão de débito</option>
+            <option value="Cartão de crédito">Cartão de crédito</option>
+            <option value="Valor total à vista">Valor total à vista</option>
+            <option value="Transferência bancária">Transferência bancária</option>
+          </select>
+
+          {form.formaPagamento === "Cartão de crédito" && (
+            <input style={estilos.input} placeholder="Parcelas (ex: 2x, 3x...)" value={form.parcelas || ""} onChange={(e) => setForm({ ...form, parcelas: e.target.value })} />
+          )}
+
+          <label style={{ fontWeight: "bold" }}>SITUAÇÃO DA DATA:</label>
+          <select
+            style={estilos.input}
+            value={form.status || "pre"}
+            onChange={(e) => setForm({ ...form, status: e.target.value, quitado: e.target.value === "pre" ? false : form.quitado })}
+          >
+            <option value="pre">Pré-reserva / proposta / aguardando sinal</option>
+            <option value="confirmado">Reserva confirmada com sinal</option>
+          </select>
+          <div style={{ ...estilos.card, borderColor: form.status === "pre" ? "orange" : "#22c55e", background: form.status === "pre" ? "rgba(58, 46, 0, 0.35)" : "rgba(20, 83, 45, 0.28)" }}>
+            {form.status === "pre"
+              ? "🟡 Pré-reserva: use Proposta PDF. Se não houver sinal, a data NÃO está garantida."
+              : "🟢 Reserva confirmada: cliente fechado. Use o Contrato PDF como documento oficial."}
+          </div>
+
+          <label style={{ fontWeight: "bold" }}>OBSERVAÇÕES:</label>
+          <textarea style={estilos.textarea} value={form.obs} onChange={(e) => setForm({ ...form, obs: e.target.value })} />
+
+          <button style={estilos.botaoRoxo} onClick={salvar}>{editandoId ? "Salvar edição" : "Salvar"}</button>
+          <button style={estilos.botao} onClick={() => abrirWhatsAppProposta(form)}>Enviar proposta no WhatsApp</button>
+          <button style={estilos.botaoRoxo} onClick={() => gerarProposta({ ...form, id: editandoId || Date.now(), dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR") })}>Proposta PDF agora</button>
+          <button style={estilos.botao} onClick={() => gerarContrato({ ...form, id: editandoId || Date.now(), dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR"), status: "confirmado" })}>Contrato PDF agora</button>
+          <button style={estilos.botaoRoxo} onClick={() => fecharComCliente({ ...form, id: editandoId || Date.now(), dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR") })}>Fechar com cliente</button>
+          {editandoId && <button style={estilos.botao} onClick={limpar}>Cancelar edição</button>}
+        </>
+      )}
+
+      {aba === "eventos" && (
+        <>
+          <h2>Eventos</h2>
+
+          <div style={{ marginBottom: 12 }}>
+            {[
+              ["todos", "Todos"],
+              ["pre", "Pré-reservas"],
+              ["pago", "Pagos"],
+              ["pendente", "Pendentes"],
+              ["executado", "Executados"],
+              ["naoExecutado", "Não executados"]
+            ].map(([id, nome]) => (
+              <button key={id} style={filtroStatus === id ? estilos.botaoRoxo : estilos.botao} onClick={() => setFiltroStatus(id)}>
+                {nome}
+              </button>
+            ))}
+          </div>
+
+          <p>{listaFiltrada.length} cadastro(s) encontrado(s).</p>
+
+          {listaFiltrada.length === 0 && <p>Nenhum evento encontrado.</p>}
+          {listaFiltrada.map((e) => <CardEvento key={e.id} e={e} />)}
+        </>
+      )}
+
+      {aba === "agenda" && (
+        <>
+          <h2>Agenda</h2>
+
+          {proximoEvento && (
+            <div style={{ ...estilos.card, background: "#2a1550", border: "2px solid #6c2bd9" }}>
+              <h3>🔥 Próximo evento</h3>
+              <strong>{proximoEvento.nome}</strong>
+              <br />
+              Serviço: {proximoEvento.tipoEvento}
+              <br />
+              Data: {dataBR(proximoEvento.data)}
+              <br />
+              Horário: {normalizarHorarioManual(proximoEvento.horaInicio) || proximoEvento.horaInicio || "Não informado"} às {normalizarHorarioManual(proximoEvento.horaFim) || proximoEvento.horaFim || "Não informado"}
+              <br />
+              Duração: {calcularDuracao(proximoEvento.horaInicio, proximoEvento.horaFim)}
+              <br />
+              Cidade / bairro: {cidadeBairroFinal(proximoEvento)}
+              <br />
+              Valor: {moeda(Number(proximoEvento.valor || 0))}
+              <br />
+              <span style={{ color: corStatus(proximoEvento), fontWeight: "bold" }}>Status: {textoStatus(proximoEvento)}</span>
+              <br />
+              <button style={estilos.botao} onClick={() => abrirWhatsApp(proximoEvento)}>WhatsApp</button>
+              <button style={estilos.botao} onClick={() => abrirWhatsAppConfirmarEvento(proximoEvento)}>Confirmar pelo WhatsApp</button>
+              <button style={estilos.botao} onClick={() => abrirGoogleAgenda(proximoEvento)}>📅 Google Agenda</button>
+              <button
+                style={estilos.botao}
+                onClick={() => {
+                  setBusca(proximoEvento.nome);
+                  setAba("eventos");
+                }}
+              >
+                Abrir evento
+              </button>
+            </div>
+          )}
+
+          <div key={`calendario-${anoCalendario}-${mesCalendario}`} style={estilos.card}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <button style={estilos.botao} onClick={() => mudarMes(-1)}>◀</button>
+              <h3 style={{ textTransform: "capitalize", textAlign: "center" }}>📅 {nomeMes}</h3>
+              <button style={estilos.botao} onClick={() => mudarMes(1)}>▶</button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, textAlign: "center", marginBottom: 8 }}>
+              {["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"].map((d) => (
+                <strong key={d} style={{ color: "#c4b5fd" }}>{d}</strong>
+              ))}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+              {diasCalendario.map((dia, index) => {
+                const qtd = dia ? eventosDoMes.filter((e) => Number(e.data.split("-")[2]) === dia).length : 0;
+                return (
+                  <button
+                    key={`${dia}-${index}`}
+                    disabled={!dia}
+                    onClick={() => setDiaSelecionado(dia)}
+                    style={{
+                      minHeight: 54,
+                      borderRadius: 8,
+                      border: diaSelecionado === dia ? "2px solid white" : "1px solid #374151",
+                      background: qtd > 0 ? "#6c2bd9" : "#111827",
+                      color: dia ? "white" : "transparent",
+                      cursor: dia ? "pointer" : "default"
+                    }}
+                  >
+                    <strong>{dia || "."}</strong>
+                    {qtd > 0 && <div style={{ fontSize: 12 }}>{qtd} evento(s)</div>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {diaSelecionado && (
+            <div style={estilos.card}>
+              <h3>Eventos do dia {String(diaSelecionado).padStart(2, "0")}</h3>
+              {eventosDoDiaSelecionado.length === 0 && <p>Nenhum evento nesse dia.</p>}
+              {eventosDoDiaSelecionado.map((e) => <CardEvento key={e.id} e={e} />)}
+            </div>
+          )}
+
+          <h3>Próximos eventos</h3>
+          {eventosFuturos.length === 0 && <p>Nenhum evento futuro cadastrado.</p>}
+          {eventosFuturos.map((e) => <CardEvento key={e.id} e={e} />)}
+        </>
+      )}
+
+      {aba === "dashboard" && (
+        <>
+          <h2>Dashboard</h2>
+          <div style={estilos.gridResumo}>
+            <div style={estilos.cardResumo}><strong>📅 Eventos cadastrados</strong><h2>{eventos.length}</h2></div>
+            <div style={estilos.cardResumo}><strong>📨 Propostas / pré-reservas</strong><h2>{totalPropostas}</h2></div>
+            <div style={estilos.cardResumo}><strong>✅ Fechados</strong><h2>{totalFechados}</h2></div>
+            <div style={estilos.cardResumo}><strong>📈 Conversão</strong><h2>{taxaConversao}%</h2></div>
+            <div style={estilos.cardResumo}><strong>🔥 Próximos</strong><h2>{eventosFuturos.length}</h2></div>
+            <div style={estilos.cardResumo}><strong>💰 Mês atual</strong><h2>{moeda(saldoMes)}</h2></div>
+          </div>
+
+          <div style={estilos.card}>
+            <h3>🧭 Funil de vendas</h3>
+            <p>Propostas/pré-reservas: <strong>{totalPropostas}</strong></p>
+            <p>Eventos fechados: <strong>{totalFechados}</strong></p>
+            <p>Taxa de conversão: <strong>{taxaConversao}%</strong></p>
+            <div style={{ width: "100%", background: "#222", borderRadius: 8, overflow: "hidden" }}>
+              <div style={{ width: `${taxaConversao}%`, background: "#6c2bd9", padding: 8, fontWeight: "bold" }}>
+                {taxaConversao}%
+              </div>
+            </div>
+          </div>
+
+          <div style={estilos.card}>
+            <h3>🏆 Ranking de clientes</h3>
+            {rankingClientes.length === 0 && <p>Nenhum cliente no ranking ainda.</p>}
+            {rankingClientes.slice(0, 8).map((cliente, index) => (
+              <button
+                key={`${cliente.nome}-${index}`}
+                style={{ ...estilos.botao, display: "block", width: "100%", textAlign: "left" }}
+                onClick={() => { setBusca(cliente.nome); setAba("eventos"); }}
+              >
+                #{index + 1} {cliente.nome} - {cliente.qtd} evento(s) - {cliente.fechados} fechado(s) - {moeda(cliente.total)}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ ...estilos.card, borderColor: clientesSumidos.length > 0 ? "#f59e0b" : "#6c2bd9" }}>
+            <h3>🧠 Notificações inteligentes</h3>
+            {clientesSumidos.length === 0 && preReservasProximas.length === 0 && <p>Nenhum alerta crítico agora.</p>}
+            {clientesSumidos.length > 0 && (
+              <>
+                <strong>Clientes sumidos há 2 dias ou mais:</strong>
+                {clientesSumidos.slice(0, 8).map((e) => (
+                  <button key={e.id} style={{ ...estilos.botao, display: "block", width: "100%", textAlign: "left" }} onClick={() => abrirEventoRapido(e)}>
+                    {e.nome} - {diasDesdeCadastro(e)} dia(s) sem fechamento - {dataCurtaBR(e.data)}
+                  </button>
+                ))}
+              </>
+            )}
+            {preReservasProximas.length > 0 && (
+              <>
+                <strong>Pré-reservas vencendo em até 3 dias:</strong>
+                {preReservasProximas.map((e) => (
+                  <button key={e.id} style={{ ...estilos.botao, display: "block", width: "100%", textAlign: "left" }} onClick={() => abrirEventoRapido(e)}>
+                    {dataCurtaBR(e.data)} - {e.nome} - {textoStatus(e)}
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
+
+          <div style={estilos.card}>
+            <h3>🕘 Histórico automático recente</h3>
+            {historicoRecente.length === 0 && <p>Nenhum histórico registrado ainda. As próximas ações já serão salvas automaticamente.</p>}
+            {historicoRecente.slice(0, 12).map((h) => (
+              <div key={h.id} style={{ borderBottom: "1px solid #374151", padding: "8px 0" }}>
+                <strong>{h.cliente}</strong> - {h.acao}
+                <br />
+                <span style={{ color: "#c4b5fd" }}>{h.data}{h.detalhe ? ` - ${h.detalhe}` : ""}</span>
+              </div>
+            ))}
+          </div>
+
+          <div style={estilos.card}>
+            <h3>🔔 Eventos nos próximos 7 dias</h3>
+            {lembretes.length === 0 && <p>Nenhum evento nos próximos 7 dias.</p>}
+            {lembretes.map((e) => (
+              <div key={e.id} style={{ borderBottom: "1px solid #374151", padding: "8px 0", cursor: "pointer" }} onClick={() => abrirEventoRapido(e)}>
+                <strong>{e.nome}</strong> - {dataBR(e.data)} - {e.horaInicio || "Horário não informado"} - <span style={{ color: corStatus(e) }}>{textoStatus(e)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {aba === "config" && (
+        <>
+          <h2>Configurações</h2>
+
+          <div style={estilos.card}>
+            <h3>💾 Backup dos dados</h3>
+            <p>Use essa área para salvar uma cópia dos seus eventos e restaurar depois, caso troque de navegador, computador ou celular.</p>
+            <button style={estilos.botaoRoxo} onClick={exportarBackup}>Baixar backup agora</button>
+            <button style={estilos.botao} onClick={() => inputBackupRef.current?.click()}>Importar backup</button>
+          </div>
+
+          <div style={estilos.card}>
+            <h3>📱 Modo celular</h3>
+            <p>O sistema agora aumenta botões e campos automaticamente quando aberto em tela pequena.</p>
+            <p><strong>Tamanho detectado:</strong> {larguraTela}px</p>
+          </div>
+
+          <div style={{ ...estilos.card, borderColor: "#991b1b" }}>
+            <h3>⚠️ Área de risco</h3>
+            <p>Apague todos os eventos somente se já tiver feito backup.</p>
+            <button style={{ ...estilos.botao, background: "#991b1b" }} onClick={apagarTudo}>Apagar todos os eventos</button>
+          </div>
+        </>
+      )}
+
+      {aba === "financeiro" && (
+        <>
+          <h2>Caixa Financeiro</h2>
+
+          <div style={estilos.gridResumo}>
+            <div style={estilos.cardResumo}><strong>💰 Hoje</strong><h2>{moeda(saldoHoje)}</h2></div>
+            <div style={estilos.cardResumo}><strong>📅 Últimos 15 dias</strong><h2>{moeda(saldo15Dias)}</h2></div>
+            <div style={estilos.cardResumo}><strong>📆 Mês</strong><h2>{moeda(saldoMes)}</h2></div>
+            <div style={estilos.cardResumo}><strong>💵 Recebido total</strong><h2>{moeda(totalRecebido)}</h2></div>
+            <div style={estilos.cardResumo}><strong>🧾 Entradas recebidas</strong><h2>{moeda(totalEntradas)}</h2></div>
+            <div style={estilos.cardResumo}><strong>⚠️ Pendente</strong><h2>{moeda(totalPendente)}</h2></div>
+            <div style={estilos.cardResumo}><strong>📉 Custos</strong><h2>{moeda(custoTotal)}</h2></div>
+            <div style={estilos.cardResumo}><strong>📈 Lucro estimado</strong><h2>{moeda(lucroTotal)}</h2></div>
+            <div style={estilos.cardResumo}><strong>🔐 Sinais recebidos</strong><h2>{moeda(sinaisRecebidos)}</h2></div>
+            <div style={estilos.cardResumo}><strong>📆 Faturamento futuro</strong><h2>{moeda(faturamentoFuturo)}</h2></div>
+            <div style={estilos.cardResumo}><strong>⏳ A receber futuro</strong><h2>{moeda(saldoReceberFuturo)}</h2></div>
+            <div style={estilos.cardResumo}><strong>🎯 Ticket médio</strong><h2>{moeda(ticketMedio)}</h2></div>
+          </div>
+
+          <div style={{ ...estilos.card, borderColor: "#22c55e" }}>
+            <h3>🏦 Painel financeiro automático</h3>
+            <p><strong>Faturamento previsto do mês:</strong> {moeda(faturamentoMesAgenda)}</p>
+            <p><strong>Lucro estimado do mês:</strong> {moeda(lucroMesEstimado)}</p>
+            <p><strong>Saldo a receber em eventos futuros:</strong> {moeda(saldoReceberFuturo)}</p>
+            <p><strong>Sinais/entradas lançados:</strong> {moeda(sinaisRecebidos)}</p>
+          </div>
+
+          <div style={estilos.card}>
+            <h3>📊 Gráfico financeiro</h3>
+            {[
+              ["Recebido", totalRecebido, "#22c55e"],
+              ["Pendente", totalPendente, "#ef4444"],
+              ["Faturamento total", faturamentoTotal, "#6c2bd9"]
+            ].map(([nome, valor, cor]) => (
+              <div key={nome} style={{ marginBottom: 12 }}>
+                <p>{nome}</p>
+                <div style={{ width: "100%", background: "#222", borderRadius: 8, overflow: "hidden" }}>
+                  <div
+                    style={{
+                      width: faturamentoTotal > 0 ? `${Math.max((valor / faturamentoTotal) * 100, valor > 0 ? 8 : 0)}%` : "0%",
+                      background: cor,
+                      padding: 8,
+                      color: "white",
+                      fontWeight: "bold",
+                      whiteSpace: "nowrap"
+                    }}
+                  >
+                    {moeda(valor)}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={estilos.card}>
+            <h3>📄 Histórico financeiro</h3>
+            {agendaOrdenada.length === 0 && <p>Nenhum lançamento.</p>}
+            {agendaOrdenada.map((e) => (
+              <div key={e.id} style={{ borderBottom: "1px solid #374151", padding: "10px 0" }}>
+                <strong>{dataCurtaBR(e.data)} - {e.nome}</strong>
+                <br />
+                Total: {moeda(e.valor)} | Entrada: {moeda(e.entrada)} | Custo: {moeda(e.custo || 0)} | Lucro: {moeda(Number(e.valor || 0) - Number(e.custo || 0))} | Pendente: {e.quitado ? moeda(0) : moeda(Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0))}
+                <br />
+                <span style={{ color: corStatus(e), fontWeight: "bold" }}>{textoStatus(e)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {reciboAberto && (
+        <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }}>
+          <div style={{ background: "#222", padding: 20, borderRadius: 8, width: 340, border: "1px solid #555" }}>
+            <h2>Gerar Recibo</h2>
+            <p><strong>{reciboAberto.nome}</strong></p>
+
+            <label>Tipo do recibo:</label>
+            <select value={tipoRecibo} onChange={(e) => setTipoRecibo(e.target.value)} style={{ ...estilos.input, background: "white", color: "black" }}>
+              <option value="sinal">Sinal / Entrada</option>
+              <option value="total">Valor total</option>
+            </select>
+
+            <label>Forma de pagamento:</label>
+            <select value={pagamentoRecibo} onChange={(e) => setPagamentoRecibo(e.target.value)} style={{ ...estilos.input, background: "white", color: "black" }}>
+              <option value="">Selecione a forma de pagamento</option>
+              <option value="Pix">Pix</option>
+              <option value="Dinheiro">Dinheiro</option>
+              <option value="Cartão de crédito">Cartão de crédito</option>
+              <option value="Cartão de débito">Cartão de débito</option>
+              <option value="Valor total à vista">Valor total à vista</option>
+              <option value="Transferência bancária">Transferência bancária</option>
+            </select>
+
+            <button style={estilos.botaoRoxo} onClick={gerarRecibo}>Gerar PDF</button>
+            <button style={estilos.botao} onClick={() => setReciboAberto(null)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
