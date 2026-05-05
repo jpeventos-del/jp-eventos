@@ -1362,7 +1362,7 @@ const horaFimFinal =
   const exportarBackup = () => {
     const dados = {
       sistema: "JP Eventos",
-      versao: "19.0 premium",
+      versao: "22.0 premium clean",
       dataBackup: new Date().toLocaleString("pt-BR"),
       eventos
     };
@@ -2497,6 +2497,44 @@ const horaFimFinal =
     ? eventosDoMes.filter((e) => Number(e.data.split("-")[2]) === diaSelecionado)
     : [];
 
+  const GraficoFinanceiroV22 = () => {
+    const maior = Math.max(faturamentoMesAgenda, custosMesAgenda, lucroMesEstimado, metaMensalNumero, 1);
+    const barras = [
+      { titulo: "Receita mês", valor: faturamentoMesAgenda, emoji: "💰" },
+      { titulo: "Custos mês", valor: custosMesAgenda, emoji: "📤" },
+      { titulo: "Lucro mês", valor: lucroMesEstimado, emoji: "📈" },
+      { titulo: "Meta", valor: metaMensalNumero, emoji: "🎯" }
+    ];
+
+    return (
+      <div style={{ ...estilos.card, borderColor: "#38bdf8" }}>
+        <h3>📊 Gráfico financeiro v22</h3>
+        <p style={{ color: "#c4b5fd", marginTop: -4 }}>Visão rápida de receita, custos, lucro e meta do mês.</p>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(4, 1fr)", gap: 10, alignItems: "end", minHeight: 190 }}>
+          {barras.map((b) => {
+            const altura = Math.max(18, Math.round((Number(b.valor || 0) / maior) * 135));
+            return (
+              <div key={b.titulo} style={{ background: "rgba(255,255,255,0.045)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: 10 }}>
+                <div style={{ height: 145, display: "flex", alignItems: "end", justifyContent: "center" }}>
+                  <div style={{
+                    width: "70%",
+                    minWidth: 34,
+                    height: altura,
+                    borderRadius: "14px 14px 6px 6px",
+                    background: "linear-gradient(180deg, #a78bfa, #6d28d9)",
+                    boxShadow: "0 10px 26px rgba(124,58,237,0.35)"
+                  }} />
+                </div>
+                <strong>{b.emoji} {b.titulo}</strong><br />
+                <span>{moeda(b.valor)}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   const CardEvento = ({ e }) => {
     const total = Number(e.valor || 0);
     const entrada = Number(e.entrada || 0);
@@ -2596,16 +2634,8 @@ const horaFimFinal =
 
   return (
     <div style={estilos.pagina}>
-      <h1 style={estilos.titulo}>JP Eventos Premium v20</h1>
-      <p style={estilos.subtitulo}>Sistema premium sem mensalidade: atendimento editável, agenda, contratos, WhatsApp, financeiro e lucro</p>
-
-      <div style={{ ...estilos.card, borderColor: bancoStatus.startsWith("Online") ? "#22c55e" : bancoStatus.startsWith("Erro") ? "#ef4444" : "#6c2bd9", padding: 10 }}>
-        <strong>☁️ Banco online:</strong> {bancoStatus}
-      </div>
-
-      <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20,83,45,0.18)", padding: 10 }}>
-        <strong>✅ V20 sem mensalidade:</strong> mensagens inteligentes por modelo interno, WhatsApp editável, financeiro com entrada + saída + lucro e nenhum serviço pago obrigatório.
-      </div>
+      <h1 style={estilos.titulo}>JP Eventos Premium v22</h1>
+      <p style={estilos.subtitulo}>Home limpa, financeiro com gráfico, configurações separadas e tudo da v20 mantido.</p>
 
       <input
         placeholder="Buscar por cliente, data, status, cidade, pacote..."
@@ -2651,29 +2681,65 @@ const horaFimFinal =
       </div>
 
       {aba === "config" && (
-        <div style={{ ...estilos.card, display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          <div>
-            <strong>💾 Segurança dos dados</strong><br />
-            <span style={{ color: "#c4b5fd" }}>Faça backup para não perder seus cadastros.</span>
-          </div>
-          <div>
-            <button style={estilos.botaoRoxo} onClick={exportarBackup}>Baixar backup</button>
+        <>
+          <div style={{ ...estilos.card, borderColor: bancoStatus.startsWith("Online") ? "#22c55e" : bancoStatus.startsWith("Erro") ? "#ef4444" : "#6c2bd9" }}>
+            <h3>☁️ Banco online</h3>
+            <p>{bancoStatus}</p>
             <button style={estilos.botao} onClick={() => sincronizarEventosNoBanco(eventos)}>Forçar sincronização online</button>
-            <button style={estilos.botao} onClick={() => inputBackupRef.current?.click()}>Importar backup</button>
-            <input
-              ref={inputBackupRef}
-              type="file"
-              accept="application/json"
-              style={{ display: "none" }}
-              onChange={(e) => importarBackup(e.target.files?.[0])}
-            />
           </div>
-        </div>
+
+          <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20,83,45,0.18)" }}>
+            <h3>✅ V22 sem mensalidade</h3>
+            <p>Mensagens inteligentes por modelo interno, WhatsApp editável, financeiro com entrada + saída + lucro, gráficos simples e nenhum serviço pago obrigatório.</p>
+          </div>
+
+          <div style={{ ...estilos.card, borderColor: appInstalavel ? "#22c55e" : "#6c2bd9" }}>
+            <h3>📱 Instalação no celular</h3>
+            <p>Android/Chrome: toque nos 3 pontinhos e escolha “Adicionar à tela inicial”.</p>
+            <p>iPhone/Safari: toque em Compartilhar e depois “Adicionar à Tela de Início”.</p>
+            <button style={appInstalavel ? estilos.botaoRoxo : estilos.botao} onClick={instalarAppNoCelular}>
+              Instalar / adicionar à tela inicial
+            </button>
+          </div>
+
+          <div style={{ ...estilos.card, display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <div>
+              <strong>💾 Segurança dos dados</strong><br />
+              <span style={{ color: "#c4b5fd" }}>Faça backup para não perder seus cadastros.</span>
+            </div>
+            <div>
+              <button style={estilos.botaoRoxo} onClick={exportarBackup}>Baixar backup</button>
+              <button style={estilos.botao} onClick={() => inputBackupRef.current?.click()}>Importar backup</button>
+              <input
+                ref={inputBackupRef}
+                type="file"
+                accept="application/json"
+                style={{ display: "none" }}
+                onChange={(e) => importarBackup(e.target.files?.[0])}
+              />
+            </div>
+          </div>
+
+          <div style={{ ...estilos.card, background: "#3a1f00", borderColor: "#f59e0b" }}>
+            <h3>🔔 Alertas inteligentes</h3>
+            <p>Pré-reservas próximas: <strong>{preReservasProximas.length}</strong></p>
+            <p>Clientes sem retorno: <strong>{clientesSumidos.length}</strong></p>
+            <p>Pagamentos pendentes: <strong>{pendentesFinanceiros.length}</strong></p>
+            <button style={estilos.botao} onClick={() => setAba("agenda")}>Ver agenda</button>
+            <button style={estilos.botao} onClick={() => setAba("financeiro")}>Ver financeiro</button>
+          </div>
+
+          <div style={{ ...estilos.card, background: "#3a2e00", borderColor: "orange" }}>
+            <h3>⚠️ Área de risco</h3>
+            <p>Apague todos os eventos somente se já tiver feito backup.</p>
+            <button style={{ ...estilos.botao, background: "#991b1b" }} onClick={apagarTudo}>Apagar todos os eventos</button>
+          </div>
+        </>
       )}
 
       {aba === "" && (
         <>
-          {proximoEvento && (
+          {proximoEvento ? (
             <div
               style={{ ...estilos.card, cursor: "pointer", borderColor: corStatus(proximoEvento) }}
               onClick={() => abrirEventoRapido(proximoEvento)}
@@ -2687,66 +2753,23 @@ const horaFimFinal =
               <br />
               <small style={{ color: "#c4b5fd" }}>Clique aqui para abrir o cadastro</small>
             </div>
-          )}
-
-          {preReservasProximas.length > 0 && (
-            <div style={{ ...estilos.card, background: "#3a2e00", borderColor: "orange" }}>
-              <h3>⚠️ Pré-reservas próximas sem confirmação</h3>
-              <p>Esses clientes ainda não fecharam e o evento está chegando.</p>
-              {preReservasProximas.map((e) => (
-                <button
-                  key={e.id}
-                  style={{ ...estilos.botao, display: "block", width: "100%", textAlign: "left" }}
-                  onClick={() => abrirEventoRapido(e)}
-                >
-                  {dataCurtaBR(e.data)} - {e.nome} - {e.tipoEvento}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {clientesSumidos.length > 0 && (
-            <div style={{ ...estilos.card, background: "#3a1f00", borderColor: "#f59e0b" }}>
-              <h3>🧠 Clientes sem retorno há 2 dias ou mais</h3>
-              <p>Pré-reservas que precisam de follow-up para não perder venda.</p>
-              {clientesSumidos.slice(0, 6).map((e) => (
-                <button
-                  key={e.id}
-                  style={{ ...estilos.botao, display: "block", width: "100%", textAlign: "left" }}
-                  onClick={() => abrirEventoRapido(e)}
-                >
-                  {e.nome} - {diasDesdeCadastro(e)} dia(s) sem fechamento - {dataCurtaBR(e.data)}
-                </button>
-              ))}
+          ) : (
+            <div style={estilos.card}>
+              <h3>🔥 Próximo evento</h3>
+              <p>Nenhum evento futuro cadastrado ainda.</p>
+              <button style={estilos.botaoRoxo} onClick={() => setAba("cadastro")}>Cadastrar evento</button>
             </div>
           )}
 
           <div style={estilos.card}>
             <h3>💰 Financeiro rápido</h3>
-            <p>Recebido: {moeda(totalRecebido)}</p>
-            <p>Pendente: {moeda(totalPendente)}</p>
-            {pendentesFinanceiros.length > 0 && (
-              <>
-                <strong>Atalhos de pendentes:</strong>
-                {pendentesFinanceiros.slice(0, 5).map((e) => (
-                  <button
-                    key={e.id}
-                    style={{ ...estilos.botao, display: "block", width: "100%", textAlign: "left" }}
-                    onClick={() => abrirEventoRapido(e)}
-                  >
-                    {e.nome} - pendente {moeda(Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0))}
-                  </button>
-                ))}
-              </>
-            )}
-          </div>
-
-          <div style={{ ...estilos.card, borderColor: appInstalavel ? "#22c55e" : "#6c2bd9" }}>
-            <h3>📱 Instalação no celular</h3>
-            <p>Use como app: Android/Chrome pelos 3 pontinhos &gt; Adicionar à tela inicial. No iPhone/Safari: Compartilhar &gt; Adicionar à Tela de Início.</p>
-            <button style={appInstalavel ? estilos.botaoRoxo : estilos.botao} onClick={instalarAppNoCelular}>
-              Instalar / adicionar à tela inicial
-            </button>
+            <div style={estilos.miniInfo}>
+              <div style={estilos.linhaInfo}><strong>Recebido</strong><br />{moeda(totalRecebido)}</div>
+              <div style={estilos.linhaInfo}><strong>Pendente</strong><br />{moeda(totalPendente)}</div>
+              <div style={estilos.linhaInfo}><strong>Lucro estimado</strong><br />{moeda(lucroTotal)}</div>
+              <div style={estilos.linhaInfo}><strong>Meta do mês</strong><br />{percentualMetaMensal}%</div>
+            </div>
+            <button style={estilos.botaoRoxo} onClick={() => setAba("financeiro")}>Abrir financeiro completo</button>
           </div>
         </>
       )}
@@ -3085,7 +3108,8 @@ const horaFimFinal =
 
       {aba === "dashboard" && (
         <>
-          <h2>Dashboard</h2>
+          <h2>Dashboard v22</h2>
+          <GraficoFinanceiroV22 />
           <div style={estilos.gridResumo}>
             <div style={estilos.cardResumo}><strong>📅 Eventos cadastrados</strong><h2>{eventos.length}</h2></div>
             <div style={estilos.cardResumo}><strong>📨 Propostas / pré-reservas</strong><h2>{totalPropostas}</h2></div>
@@ -3211,7 +3235,8 @@ const horaFimFinal =
 
       {aba === "financeiro" && (
         <>
-          <h2>Caixa Financeiro Premium</h2>
+          <h2>Caixa Financeiro Premium v22</h2>
+          <GraficoFinanceiroV22 />
 
           <div style={{ ...estilos.card, borderColor: "#22c55e", background: "linear-gradient(135deg, rgba(6,78,59,0.55), rgba(17,24,39,0.96))" }}>
             <h3>🎯 Meta do mês</h3>
