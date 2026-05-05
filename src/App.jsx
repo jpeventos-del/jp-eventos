@@ -162,6 +162,8 @@ export default function App() {
 
   const [form, setForm] = useState(formInicial);
   const [textoWhatsApp, setTextoWhatsApp] = useState("");
+  const [pwaInstallPrompt, setPwaInstallPrompt] = useState(null);
+  const [appInstalavel, setAppInstalavel] = useState(false);
   const [bancoStatus, setBancoStatus] = useState("Conectando ao banco online...");
   const bancoCarregadoRef = useRef(false);
   const sincronizandoBancoRef = useRef(false);
@@ -304,6 +306,39 @@ export default function App() {
     return () => window.removeEventListener("resize", atualizarLargura);
   }, []);
 
+  useEffect(() => {
+    const aoPrepararInstalacao = (evento) => {
+      evento.preventDefault();
+      setPwaInstallPrompt(evento);
+      setAppInstalavel(true);
+    };
+
+    const aoInstalar = () => {
+      setPwaInstallPrompt(null);
+      setAppInstalavel(false);
+    };
+
+    window.addEventListener("beforeinstallprompt", aoPrepararInstalacao);
+    window.addEventListener("appinstalled", aoInstalar);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", aoPrepararInstalacao);
+      window.removeEventListener("appinstalled", aoInstalar);
+    };
+  }, []);
+
+  const instalarAppNoCelular = async () => {
+    if (!pwaInstallPrompt) {
+      alert("Se o botão de instalação não aparecer, abra o site no celular, toque nos 3 pontinhos do navegador e escolha 'Adicionar à tela inicial'.");
+      return;
+    }
+
+    pwaInstallPrompt.prompt();
+    await pwaInstallPrompt.userChoice;
+    setPwaInstallPrompt(null);
+    setAppInstalavel(false);
+  };
+
   const estilos = {
     pagina: {
       minHeight: "100vh",
@@ -393,6 +428,13 @@ export default function App() {
       style: "currency",
       currency: "BRL"
     });
+
+  const rotuloDocumentoCliente = (valor) => {
+    const nums = String(valor || "").replace(/[^0-9]/g, "");
+    if (nums.length === 14) return "CNPJ";
+    if (nums.length === 11) return "CPF";
+    return "CPF/CNPJ";
+  };
 
   const dataBR = (data) => {
     if (!data) return "Não informado";
@@ -524,6 +566,7 @@ export default function App() {
 🎉 Tipo de evento:
 🎂 Se for aniversário, qual idade?
 👤 Nome do aniversariante ou homenageado:
+🧾 CPF ou CNPJ para proposta/contrato:
 ⏰ Horário de início:
 ⏳ Quantas horas de evento?
 🏢 Local: buffet, casa, salão, loja ou local externo?
@@ -819,6 +862,18 @@ ${textoLimpo || ""}`;
       return `${nums.slice(0, 3)}.${nums.slice(3, 6)}.${nums.slice(6, 9)}-${nums.slice(9, 11)}`;
     };
 
+    const formatarCNPJ = (nums) => {
+      if (!nums || nums.length !== 14) return "";
+      return `${nums.slice(0, 2)}.${nums.slice(2, 5)}.${nums.slice(5, 8)}/${nums.slice(8, 12)}-${nums.slice(12, 14)}`;
+    };
+
+    const formatarCpfOuCnpj = (valor) => {
+      const nums = apenasNumeros(valor);
+      if (nums.length === 11) return formatarCPF(nums);
+      if (nums.length === 14) return formatarCNPJ(nums);
+      return valor || "";
+    };
+
     const normalizarHora = (h, frase = "") => {
       let hora = Number(h);
       const f = normalizarTexto(frase);
@@ -859,14 +914,22 @@ ${textoLimpo || ""}`;
       return limparCampoCurto(achou[1]);
     };
 
-    const acharCPF = () => {
-      const grupos = String(texto).match(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/g) || [];
-      if (grupos.length > 0) return formatarCPF(apenasNumeros(grupos[0]));
+    const acharCpfOuCnpj = () => {
+      const porRotulo = valorPorRotulo(["cpf/cnpj", "cpf", "cnpj", "documento"]);
+      const documentoRotulo = formatarCpfOuCnpj(porRotulo);
+      if (documentoRotulo) return documentoRotulo;
+
+      const cnpjs = String(texto).match(/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/g) || [];
+      if (cnpjs.length > 0) return formatarCNPJ(apenasNumeros(cnpjs[0]));
+
+      const cpfs = String(texto).match(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/g) || [];
+      if (cpfs.length > 0) return formatarCPF(apenasNumeros(cpfs[0]));
+
       return "";
     };
 
-    const cpfExtraido = acharCPF();
-    const cpfNumeros = apenasNumeros(cpfExtraido);
+    const documentoExtraido = acharCpfOuCnpj();
+    const documentoNumeros = apenasNumeros(documentoExtraido);
 
     const acharTelefone = () => {
       const grupos = String(textoOriginal + "\n" + texto).match(/\+?\d[\d\s().-]{8,}\d/g) || [];
@@ -875,7 +938,7 @@ ${textoLimpo || ""}`;
         let nums = apenasNumeros(grupo);
         if (nums.startsWith("55") && nums.length >= 12) nums = nums.slice(2);
 
-        if (nums === cpfNumeros) continue;
+        if (nums === documentoNumeros) continue;
 
         if (nums.length === 11 && nums[2] === "9") return nums;
         if (nums.length === 10) return nums;
@@ -1149,7 +1212,7 @@ const horaFimFinal =
     setForm({
       ...form,
       nome: nomeMelhorado || form.nome,
-      cpf: cpfExtraido || form.cpf,
+      cpf: documentoExtraido || form.cpf,
       whatsapp: telefoneExtraido || form.whatsapp,
       tipoEvento: tipoEvento || form.tipoEvento,
       data: dataExtraida || form.data,
@@ -1179,7 +1242,7 @@ const horaFimFinal =
   const exportarBackup = () => {
     const dados = {
       sistema: "JP Eventos",
-      versao: "10.0 profissional",
+      versao: "17.0 empresa maxima cpf cnpj",
       dataBackup: new Date().toLocaleString("pt-BR"),
       eventos
     };
@@ -1506,7 +1569,7 @@ const horaFimFinal =
 
     return [
       `Nome: ${e.nome}`,
-      `CPF: ${e.cpf || "Não informado"}`,
+      `${rotuloDocumentoCliente(e.cpf)}: ${e.cpf || "Não informado"}`,
       `WhatsApp: ${e.whatsapp}`,
       `Tipo do evento: ${e.tipoEvento}`,
       `Data do evento: ${dataBR(e.data)}`,
@@ -1707,7 +1770,7 @@ const horaFimFinal =
 
     secao(ehProposta ? "DADOS DO CLIENTE" : "DADOS DO CONTRATANTE");
     campo("Nome", e.nome);
-    campo("CPF", e.cpf || "Não informado");
+    campo(rotuloDocumentoCliente(e.cpf), e.cpf || "Não informado");
     campo("WhatsApp", e.whatsapp);
 
     secao("DADOS DO EVENTO");
@@ -1798,7 +1861,7 @@ const horaFimFinal =
       doc.setFontSize(8);
       doc.setTextColor(120, 120, 130);
       texto(`Página ${i} de ${totalPaginas}`, 196, 290, { align: "right" });
-      texto(`JP Eventos Fortaleza - ${ehProposta ? "Proposta" : "Contrato"} gerado automaticamente pelo sistema | CPF/CNPJ contratante: ${e.cpf || "não informado"}`, margem, 290);
+      texto(`JP Eventos Fortaleza - ${ehProposta ? "Proposta" : "Contrato"} gerado automaticamente pelo sistema | ${rotuloDocumentoCliente(e.cpf)} contratante: ${e.cpf || "não informado"}`, margem, 290);
       doc.setTextColor(0, 0, 0);
     }
 
@@ -1852,7 +1915,7 @@ const horaFimFinal =
     let y = 70;
     const linhas = [
       `Recebi de: ${e.nome}`,
-      `CPF: ${e.cpf || "Não informado"}`,
+      `${rotuloDocumentoCliente(e.cpf)}: ${e.cpf || "Não informado"}`,
       `WhatsApp: ${e.whatsapp}`,
       `Tipo do evento: ${e.tipoEvento}`,
       `Data do evento: ${dataBR(e.data)}`,
@@ -2408,6 +2471,14 @@ const horaFimFinal =
               </>
             )}
           </div>
+
+          <div style={{ ...estilos.card, borderColor: appInstalavel ? "#22c55e" : "#6c2bd9" }}>
+            <h3>📱 App no celular</h3>
+            <p>Este sistema já está online. Para usar como aplicativo, abra no celular e adicione à tela inicial.</p>
+            <button style={appInstalavel ? estilos.botaoRoxo : estilos.botao} onClick={instalarAppNoCelular}>
+              Instalar / adicionar à tela inicial
+            </button>
+          </div>
         </>
       )}
 
@@ -2469,8 +2540,8 @@ const horaFimFinal =
           <label style={{ fontWeight: "bold" }}>NOME:</label>
 <input style={estilos.input} value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} />
 
-<label style={{ fontWeight: "bold" }}>CPF:</label>
-<input style={estilos.input} value={form.cpf} onChange={(e) => setForm({ ...form, cpf: e.target.value })} />
+<label style={{ fontWeight: "bold" }}>CPF / CNPJ:</label>
+<input style={estilos.input} placeholder="CPF ou CNPJ do cliente/empresa" value={form.cpf} onChange={(e) => setForm({ ...form, cpf: e.target.value })} />
 
 <label style={{ fontWeight: "bold" }}>WHATSAPP:</label>
 <input style={estilos.input} value={form.whatsapp} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} />
@@ -2842,9 +2913,11 @@ const horaFimFinal =
           </div>
 
           <div style={estilos.card}>
-            <h3>📱 Modo celular</h3>
-            <p>O sistema agora aumenta botões e campos automaticamente quando aberto em tela pequena.</p>
+            <h3>📱 Modo celular / instalação</h3>
+            <p>O sistema aumenta botões e campos automaticamente quando aberto em tela pequena.</p>
             <p><strong>Tamanho detectado:</strong> {larguraTela}px</p>
+            <button style={appInstalavel ? estilos.botaoRoxo : estilos.botao} onClick={instalarAppNoCelular}>Instalar app / adicionar à tela inicial</button>
+            <p style={{ color: "#c4b5fd" }}>No celular: abra o link, toque nos 3 pontinhos do navegador e escolha “Adicionar à tela inicial”.</p>
           </div>
 
           <div style={{ ...estilos.card, borderColor: "#991b1b" }}>
