@@ -182,8 +182,79 @@ export default function App() {
   const [pwaInstallPrompt, setPwaInstallPrompt] = useState(null);
   const [appInstalavel, setAppInstalavel] = useState(false);
   const [bancoStatus, setBancoStatus] = useState("Conectando ao banco online...");
+  const [onlineStatus, setOnlineStatus] = useState(() => navigator.onLine ? "online" : "offline");
+  const [filaSync, setFilaSync] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("filaSyncJPEventos") || "[]");
+    } catch {
+      return [];
+    }
+  });
   const bancoCarregadoRef = useRef(false);
   const sincronizandoBancoRef = useRef(false);
+  const filaSyncRef = useRef([]);
+
+  const salvarFilaSync = (novaFila) => {
+    const filaLimpa = Array.isArray(novaFila) ? novaFila : [];
+    filaSyncRef.current = filaLimpa;
+    setFilaSync(filaLimpa);
+    localStorage.setItem("filaSyncJPEventos", JSON.stringify(filaLimpa));
+  };
+
+  const adicionarNaFilaSync = (lista, motivo = "Falha temporária") => {
+    const registros = normalizarIdsEventos(lista).map(eventoParaBanco);
+    const item = {
+      id: criarIdSeguro(),
+      criadoEm: new Date().toISOString(),
+      motivo,
+      registros
+    };
+
+    salvarFilaSync([...filaSyncRef.current, item]);
+    setBancoStatus(`Offline: ${registros.length} cadastro(s) guardado(s) para sincronizar depois.`);
+  };
+
+  const sincronizarFilaPendente = async () => {
+    if (sincronizandoBancoRef.current) return;
+    if (!navigator.onLine) {
+      setOnlineStatus("offline");
+      setBancoStatus("Offline: alterações ficam salvas neste aparelho e serão enviadas quando a internet voltar.");
+      return;
+    }
+
+    const filaAtual = [...filaSyncRef.current];
+    if (!filaAtual.length) return;
+
+    try {
+      sincronizandoBancoRef.current = true;
+      setBancoStatus(`Sincronizando ${filaAtual.length} pendência(s) online...`);
+
+      const pendentes = [];
+      for (const item of filaAtual) {
+        try {
+          const registros = Array.isArray(item.registros) ? item.registros : [];
+          if (registros.length > 0) {
+            const { error } = await supabase.from("eventos").insert(registros);
+            if (error) throw error;
+          }
+        } catch (erro) {
+          pendentes.push(item);
+        }
+      }
+
+      salvarFilaSync(pendentes);
+
+      if (pendentes.length === 0) {
+        setBancoStatus("Online: pendências sincronizadas com sucesso.");
+      } else {
+        setBancoStatus(`Online parcial: ${pendentes.length} pendência(s) ainda aguardando.`);
+      }
+    } catch (erro) {
+      setBancoStatus(`Erro ao sincronizar pendências: ${erro?.message || erro}`);
+    } finally {
+      sincronizandoBancoRef.current = false;
+    }
+  };
 
   const ehUuid = (valor) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(valor || ""));
@@ -281,6 +352,13 @@ export default function App() {
   const sincronizarEventosNoBanco = async (lista) => {
     if (!bancoCarregadoRef.current || sincronizandoBancoRef.current) return;
 
+    const registros = normalizarIdsEventos(lista).map(eventoParaBanco);
+
+    if (!navigator.onLine) {
+      adicionarNaFilaSync(lista, "Sem internet no momento da sincronização");
+      return;
+    }
+
     try {
       sincronizandoBancoRef.current = true;
       setBancoStatus("Salvando online...");
@@ -292,17 +370,20 @@ export default function App() {
 
       if (deleteError) throw deleteError;
 
-      const registros = normalizarIdsEventos(lista).map(eventoParaBanco);
-
       if (registros.length > 0) {
         const { error: insertError } = await supabase.from("eventos").insert(registros);
         if (insertError) throw insertError;
       }
 
       setBancoStatus(`Online: ${registros.length} cadastro(s) sincronizado(s).`);
+
+      if (filaSyncRef.current.length > 0) {
+        setTimeout(() => sincronizarFilaPendente(), 400);
+      }
     } catch (erro) {
       console.error("Erro ao sincronizar Supabase:", erro);
-      setBancoStatus(`Erro ao salvar online: ${erro?.message || erro}`);
+      adicionarNaFilaSync(lista, erro?.message || "Falha ao salvar online");
+      setBancoStatus(`Modo seguro: dados salvos localmente e pendentes para sincronizar. Detalhe: ${erro?.message || erro}`);
     } finally {
       sincronizandoBancoRef.current = false;
     }
@@ -320,6 +401,33 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("metaMensalJPEventos", String(metaMensal || ""));
   }, [metaMensal]);
+
+  useEffect(() => {
+    filaSyncRef.current = filaSync;
+    localStorage.setItem("filaSyncJPEventos", JSON.stringify(filaSync));
+  }, [filaSync]);
+
+  useEffect(() => {
+    const aoFicarOnline = () => {
+      setOnlineStatus("online");
+      sincronizarFilaPendente();
+    };
+
+    const aoFicarOffline = () => {
+      setOnlineStatus("offline");
+      setBancoStatus("Offline: você pode continuar usando. O sistema sincroniza quando voltar internet.");
+    };
+
+    window.addEventListener("online", aoFicarOnline);
+    window.addEventListener("offline", aoFicarOffline);
+
+    sincronizarFilaPendente();
+
+    return () => {
+      window.removeEventListener("online", aoFicarOnline);
+      window.removeEventListener("offline", aoFicarOffline);
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("rascunhoFormJPEventos", JSON.stringify(form));
@@ -1667,7 +1775,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   const exportarBackup = () => {
     const dados = {
       sistema: "JP Eventos",
-      versao: "23.6 horario flexivel whatsapp",
+      versao: "24.0 sincronizacao automatica",
       dataBackup: new Date().toLocaleString("pt-BR"),
       eventos
     };
@@ -1749,6 +1857,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       localStorage.removeItem("eventos");
       localStorage.removeItem("metaMensalJPEventos");
       localStorage.removeItem("tomWhatsAppJPEventos");
+      salvarFilaSync([]);
 
       if (bancoCarregadoRef.current) {
         await supabase
@@ -2857,7 +2966,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
 
     return (
       <div style={{ ...estilos.card, borderColor: "#38bdf8" }}>
-        <h3>📊 Gráfico financeiro v22</h3>
+        <h3>📊 Gráfico financeiro v24</h3>
         <p style={{ color: "#c4b5fd", marginTop: -4 }}>Visão rápida de receita, custos, lucro e meta do mês.</p>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(4, 1fr)", gap: 10, alignItems: "end", minHeight: 190 }}>
           {barras.map((b) => {
@@ -3035,11 +3144,20 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             <h3>☁️ Banco online</h3>
             <p>{bancoStatus}</p>
             <button style={estilos.botao} onClick={() => sincronizarEventosNoBanco(eventos)}>Forçar sincronização online</button>
+            <button style={estilos.botaoRoxo} onClick={sincronizarFilaPendente}>Sincronizar pendências</button>
+          </div>
+
+          <div style={{ ...estilos.card, borderColor: onlineStatus === "online" ? "#22c55e" : "#f59e0b" }}>
+            <h3>🔄 Sincronização automática v24</h3>
+            <p>Status da internet: <strong>{onlineStatus === "online" ? "Online" : "Offline"}</strong></p>
+            <p>Pendências aguardando envio: <strong>{filaSync.length}</strong></p>
+            <p>Se a internet cair, o cadastro fica salvo neste aparelho e será enviado automaticamente quando a conexão voltar.</p>
+            <button style={estilos.botaoRoxo} onClick={sincronizarFilaPendente}>Forçar sincronização agora</button>
           </div>
 
           <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20,83,45,0.18)" }}>
-            <h3>✅ V22 sem mensalidade</h3>
-            <p>Mensagens inteligentes por modelo interno, WhatsApp editável, financeiro com entrada + saída + lucro, gráficos simples e nenhum serviço pago obrigatório.</p>
+            <h3>✅ V24 sem mensalidade</h3>
+            <p>Mensagens inteligentes por modelo interno, WhatsApp editável, financeiro com entrada + saída + lucro, gráficos simples, sincronização automática e nenhum serviço pago obrigatório.</p>
           </div>
 
           <div style={{ ...estilos.card, borderColor: appInstalavel ? "#22c55e" : "#6c2bd9" }}>
