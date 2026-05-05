@@ -1430,6 +1430,50 @@ const horaFimFinal =
     alert("Todos os eventos foram apagados.");
   };
 
+  const resetarSistema = async () => {
+    const primeira = confirm(
+      "ATENÇÃO: isso vai apagar TODOS os dados do sistema.\n\nAntes de continuar, faça backup em Configurações.\n\nDeseja continuar?"
+    );
+
+    if (!primeira) return;
+
+    const confirmacao = prompt(
+      "Para confirmar o RESET TOTAL, digite exatamente: CONFIRMAR"
+    );
+
+    if (confirmacao !== "CONFIRMAR") {
+      alert("Reset cancelado. Nada foi apagado.");
+      return;
+    }
+
+    const segunda = confirm(
+      "Última confirmação: apagar todos os eventos, cadastros, financeiro, histórico e dados locais?"
+    );
+
+    if (!segunda) return;
+
+    try {
+      setEventos([]);
+      localStorage.removeItem("eventos");
+      localStorage.removeItem("metaMensalJPEventos");
+      localStorage.removeItem("tomWhatsAppJPEventos");
+
+      if (bancoCarregadoRef.current) {
+        await supabase
+          .from("eventos")
+          .delete()
+          .neq("id", "00000000-0000-0000-0000-000000000000");
+      }
+
+      alert("Sistema resetado com sucesso. Agora você pode começar com clientes reais.");
+      window.location.reload();
+    } catch (erro) {
+      console.error("Erro ao resetar sistema:", erro);
+      alert(`Dados locais apagados, mas houve erro ao limpar online: ${erro?.message || erro}`);
+      window.location.reload();
+    }
+  };
+
   const salvar = () => {
     if (!form.nome || !form.whatsapp || !form.tipoEvento || !form.data) {
       alert("Preencha pelo menos nome, WhatsApp, tipo de evento e data.");
