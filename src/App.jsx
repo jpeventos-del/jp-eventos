@@ -122,23 +122,24 @@ export default function App() {
     const pendente = Math.max(total - entrada, 0);
 
     return [
-      `Olá, ${evento.nome || "tudo bem"}! 😊`,
+      `Olá, ${evento.nome || "tudo bem"}! Tudo bem? 😊`,
       "",
-      "Já conferi as informações do seu evento e montei a melhor opção para você:",
+      "Conferi as informações do seu evento e preparei uma opção profissional para você:",
       "",
       `🎉 Evento: ${evento.tipoEvento || "a confirmar"}`,
       `📅 Data: ${evento.data ? dataCurtaBR(evento.data) : "a confirmar"}`,
       `⏰ Horário: ${evento.horaInicio || "a combinar"}${evento.horaFim ? ` às ${evento.horaFim}` : ""}`,
-      `📍 Local: ${evento.cidade || evento.endereco || "a confirmar"}`,
+      `📍 Local: ${cidadeBairroFinal(evento) || evento.endereco || "a confirmar"}`,
       "",
       `✅ Pacote indicado: ${pacoteFinal}`,
-      info?.descricao ? `📦 Inclui: ${info.descricao}` : "",
+      info?.descricao ? `📦 Estrutura inclusa: ${info.descricao}` : "",
       "",
-      total > 0 ? `💰 Valor total: ${moeda(total)}` : "💰 Valor total: a confirmar",
-      entrada > 0 ? `🔐 Reserva da data com sinal de: ${moeda(entrada)}` : "",
-      total > 0 ? `💳 Restante para o dia do evento: ${moeda(pendente)}` : "",
+      total > 0 ? `💰 Valor total do serviço: ${moeda(total)}` : "💰 Valor total: a confirmar",
+      entrada > 0 ? `🔐 Sinal para reservar a data: ${moeda(entrada)}` : "🔐 Sinal de reserva: a combinar",
+      total > 0 ? `💳 Saldo para o dia do evento: ${moeda(pendente)}` : "",
       "",
-      "Para garantir a data, é só confirmar o pacote e fazer o sinal. Assim eu já deixo sua data reservada na agenda. 🙌"
+      "Importante: a data só fica garantida após a confirmação do sinal/entrada combinado.",
+      "Posso deixar essa opção reservada para você? 🙌"
     ].filter(Boolean).join("\n");
   };
 
@@ -329,7 +330,12 @@ export default function App() {
 
   const instalarAppNoCelular = async () => {
     if (!pwaInstallPrompt) {
-      alert("Se o botão de instalação não aparecer, abra o site no celular, toque nos 3 pontinhos do navegador e escolha 'Adicionar à tela inicial'.");
+      alert(`Para instalar no celular:
+
+Android/Chrome: toque nos 3 pontinhos e escolha 'Adicionar à tela inicial'.
+iPhone/Safari: toque em Compartilhar e depois 'Adicionar à Tela de Início'.
+
+Se aparecer o botão automático de instalação, use ele primeiro.`);
       return;
     }
 
@@ -342,14 +348,15 @@ export default function App() {
   const estilos = {
     pagina: {
       minHeight: "100vh",
-      padding: isMobile ? 12 : 20,
-      background: "linear-gradient(135deg, #09090b, #111827, #1a0f2e)",
+      padding: isMobile ? 12 : 22,
+      background: "radial-gradient(circle at top left, rgba(124,58,237,0.28), transparent 30%), linear-gradient(135deg, #07070a, #111827 48%, #1f1235)",
       color: "white",
-      fontFamily: "Arial, sans-serif"
+      fontFamily: "Inter, Arial, sans-serif"
     },
     titulo: {
       marginBottom: 4,
-      color: "#ffffff"
+      color: "#ffffff",
+      letterSpacing: "-0.5px"
     },
     subtitulo: {
       marginTop: 0,
@@ -360,66 +367,136 @@ export default function App() {
       fontSize: isMobile ? 16 : 14,
       boxSizing: "border-box",
       marginBottom: 10,
-      background: "#111827",
+      background: "rgba(15, 23, 42, 0.96)",
       color: "white",
-      padding: 12,
-      borderRadius: 8,
-      border: "1px solid #6c2bd9",
-      outline: "none"
+      padding: isMobile ? 12 : 10,
+      borderRadius: 12,
+      border: "1px solid rgba(167,139,250,0.55)",
+      outline: "none",
+      boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.02)"
     },
     textarea: {
       width: "100%",
       fontSize: isMobile ? 16 : 14,
-      minHeight: 80,
+      minHeight: 90,
       boxSizing: "border-box",
       marginBottom: 10,
-      background: "#111827",
+      background: "rgba(15, 23, 42, 0.96)",
       color: "white",
       padding: 12,
-      borderRadius: 8,
-      border: "1px solid #6c2bd9",
+      borderRadius: 12,
+      border: "1px solid rgba(167,139,250,0.55)",
       outline: "none"
     },
     botao: {
       margin: "4px 4px 4px 0",
-      padding: isMobile ? "12px 14px" : "10px 12px",
-      borderRadius: 8,
-      border: "none",
-      background: "#374151",
+      padding: isMobile ? "10px 12px" : "8px 10px",
+      borderRadius: 10,
+      border: "1px solid rgba(255,255,255,0.08)",
+      background: "#263244",
       color: "white",
       cursor: "pointer",
-      fontWeight: "bold"
+      fontWeight: "700",
+      fontSize: isMobile ? 14 : 13
     },
     botaoRoxo: {
       margin: "4px 4px 4px 0",
-      padding: isMobile ? "12px 14px" : "10px 12px",
-      borderRadius: 8,
-      border: "none",
-      background: "#6c2bd9",
+      padding: isMobile ? "10px 12px" : "8px 10px",
+      borderRadius: 10,
+      border: "1px solid rgba(255,255,255,0.10)",
+      background: "linear-gradient(135deg, #7c3aed, #9333ea)",
       color: "white",
       cursor: "pointer",
-      fontWeight: "bold"
+      fontWeight: "800",
+      fontSize: isMobile ? 14 : 13,
+      boxShadow: "0 8px 20px rgba(124,58,237,0.22)"
+    },
+    botaoPequeno: {
+      margin: "3px 3px 3px 0",
+      padding: isMobile ? "9px 10px" : "7px 9px",
+      borderRadius: 999,
+      border: "1px solid rgba(255,255,255,0.08)",
+      background: "rgba(30, 41, 59, 0.95)",
+      color: "white",
+      cursor: "pointer",
+      fontWeight: "700",
+      fontSize: isMobile ? 13 : 12
     },
     card: {
-      border: "1px solid #6c2bd9",
-      background: "rgba(17, 24, 39, 0.92)",
-      padding: 14,
-      marginBottom: 12,
-      borderRadius: 10,
-      boxShadow: "0 0 10px rgba(108,43,217,0.25)"
+      border: "1px solid rgba(139,92,246,0.68)",
+      background: "linear-gradient(180deg, rgba(17, 24, 39, 0.96), rgba(15, 23, 42, 0.92))",
+      padding: isMobile ? 12 : 16,
+      marginBottom: 14,
+      borderRadius: 18,
+      boxShadow: "0 18px 40px rgba(0,0,0,0.30), 0 0 18px rgba(108,43,217,0.16)"
+    },
+    cardClaro: {
+      border: "1px solid rgba(255,255,255,0.08)",
+      background: "rgba(255,255,255,0.045)",
+      padding: 12,
+      borderRadius: 14,
+      marginTop: 10
+    },
+    grupoAcoes: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 4,
+      marginTop: 8,
+      paddingTop: 8,
+      borderTop: "1px solid rgba(255,255,255,0.08)"
+    },
+    tituloGrupo: {
+      width: "100%",
+      color: "#c4b5fd",
+      fontSize: 12,
+      fontWeight: "800",
+      textTransform: "uppercase",
+      letterSpacing: "0.6px",
+      marginTop: 4
+    },
+    badge: {
+      display: "inline-block",
+      padding: "4px 9px",
+      borderRadius: 999,
+      background: "rgba(124,58,237,0.22)",
+      border: "1px solid rgba(196,181,253,0.35)",
+      color: "#ddd6fe",
+      fontWeight: "800",
+      fontSize: 12,
+      margin: "3px 4px 3px 0"
+    },
+    miniInfo: {
+      display: "grid",
+      gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+      gap: 8,
+      marginTop: 10
+    },
+    linhaInfo: {
+      background: "rgba(255,255,255,0.045)",
+      border: "1px solid rgba(255,255,255,0.06)",
+      borderRadius: 12,
+      padding: 10
     },
     gridResumo: {
       display: "grid",
-      gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(170px, 1fr))",
+      gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(190px, 1fr))",
       gap: 12,
       marginBottom: 20
     },
     cardResumo: {
-      background: "rgba(42, 21, 80, 0.85)",
-      border: "1px solid #6c2bd9",
-      borderRadius: 12,
-      padding: 14,
-      boxShadow: "0 0 10px rgba(108,43,217,0.25)"
+      background: "linear-gradient(135deg, rgba(88,28,135,0.92), rgba(30,41,59,0.96))",
+      border: "1px solid rgba(196,181,253,0.35)",
+      borderRadius: 18,
+      padding: 16,
+      boxShadow: "0 14px 30px rgba(0,0,0,0.28)",
+      minHeight: 94
+    },
+    cardFinanceiro: {
+      background: "linear-gradient(135deg, rgba(6,78,59,0.55), rgba(30,41,59,0.92))",
+      border: "1px solid rgba(34,197,94,0.35)",
+      borderRadius: 18,
+      padding: 16,
+      boxShadow: "0 14px 30px rgba(0,0,0,0.25)"
     }
   };
 
@@ -434,6 +511,35 @@ export default function App() {
     if (nums.length === 14) return "CNPJ";
     if (nums.length === 11) return "CPF";
     return "CPF/CNPJ";
+  };
+
+
+  const formatarDocumentoCliente = (valor) => {
+    const nums = String(valor || "").replace(/[^0-9]/g, "").slice(0, 14);
+    if (nums.length <= 11) {
+      return nums
+        .replace(/(\d{3})(\d)/, "$1.$2")
+        .replace(/(\d{3})(\d)/, "$1.$2")
+        .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+    }
+    return nums
+      .replace(/(\d{2})(\d)/, "$1.$2")
+      .replace(/(\d{3})(\d)/, "$1.$2")
+      .replace(/(\d{3})(\d)/, "$1/$2")
+      .replace(/(\d{4})(\d{1,2})$/, "$1-$2");
+  };
+
+  const documentoValidoCliente = (valor) => {
+    const nums = String(valor || "").replace(/[^0-9]/g, "");
+    return nums.length === 11 || nums.length === 14;
+  };
+
+  const textoDocumentoValidacao = (valor) => {
+    const nums = String(valor || "").replace(/[^0-9]/g, "");
+    if (!nums) return "Não informado";
+    if (nums.length === 11) return "CPF informado com 11 dígitos";
+    if (nums.length === 14) return "CNPJ informado com 14 dígitos";
+    return "Atenção: documento incompleto ou com quantidade de dígitos diferente de CPF/CNPJ";
   };
 
   const dataBR = (data) => {
@@ -558,21 +664,23 @@ export default function App() {
     return historico.slice(0, 5);
   };
 
-  const perguntasPadrao = `Olá! Para eu te passar o melhor pacote, me responde preenchendo essas informações aqui mesmo no WhatsApp:
+  const perguntasPadrao = `Olá! Tudo bem? 😊
+
+Para eu montar a melhor proposta para o seu evento, me envie por favor:
 
 📅 Data do evento:
+🎉 Tipo de evento:
+👤 Nome completo do responsável:
+🧾 CPF ou CNPJ para proposta/contrato:
 📍 Cidade / bairro:
 🏠 Endereço completo:
-🎉 Tipo de evento:
-🎂 Se for aniversário, qual idade?
-👤 Nome do aniversariante ou homenageado:
-🧾 CPF ou CNPJ para proposta/contrato:
 ⏰ Horário de início:
-⏳ Quantas horas de evento?
-🏢 Local: buffet, casa, salão, loja ou local externo?
-☔ O local é coberto?
+⏳ Duração do evento:
+🏢 Local: casa, buffet, salão, loja ou área externa?
+☔ O local é coberto e tem ponto de energia seguro?
+🎶 Tem alguma preferência de pacote ou estrutura?
 
-Me passando essas informações eu já vejo o melhor pacote para seu evento.`;
+Com essas informações eu confiro a agenda e te envio a melhor opção com valor, sinal e detalhes do serviço.`;
 
   const copiarPerguntasPadrao = () => {
   navigator.clipboard.writeText(perguntasPadrao);
@@ -1242,7 +1350,7 @@ const horaFimFinal =
   const exportarBackup = () => {
     const dados = {
       sistema: "JP Eventos",
-      versao: "17.0 empresa maxima cpf cnpj",
+      versao: "18.0 profissional",
       dataBackup: new Date().toLocaleString("pt-BR"),
       eventos
     };
@@ -1570,6 +1678,7 @@ const horaFimFinal =
     return [
       `Nome: ${e.nome}`,
       `${rotuloDocumentoCliente(e.cpf)}: ${e.cpf || "Não informado"}`,
+      `Conferência do documento: ${textoDocumentoValidacao(e.cpf)}`,
       `WhatsApp: ${e.whatsapp}`,
       `Tipo do evento: ${e.tipoEvento}`,
       `Data do evento: ${dataBR(e.data)}`,
@@ -1771,6 +1880,7 @@ const horaFimFinal =
     secao(ehProposta ? "DADOS DO CLIENTE" : "DADOS DO CONTRATANTE");
     campo("Nome", e.nome);
     campo(rotuloDocumentoCliente(e.cpf), e.cpf || "Não informado");
+    campo("Conferência do documento", textoDocumentoValidacao(e.cpf));
     campo("WhatsApp", e.whatsapp);
 
     secao("DADOS DO EVENTO");
@@ -1916,6 +2026,7 @@ const horaFimFinal =
     const linhas = [
       `Recebi de: ${e.nome}`,
       `${rotuloDocumentoCliente(e.cpf)}: ${e.cpf || "Não informado"}`,
+      `Conferência do documento: ${textoDocumentoValidacao(e.cpf)}`,
       `WhatsApp: ${e.whatsapp}`,
       `Tipo do evento: ${e.tipoEvento}`,
       `Data do evento: ${dataBR(e.data)}`,
@@ -2230,109 +2341,102 @@ const horaFimFinal =
     ? eventosDoMes.filter((e) => Number(e.data.split("-")[2]) === diaSelecionado)
     : [];
 
-  const CardEvento = ({ e }) => (
-    <div style={{ ...estilos.card, borderColor: corStatus(e) }}>
-      <strong style={{ color: e.executado ? "limegreen" : "white", fontSize: 18 }}>{e.nome}</strong>
-      <br />
-      Tipo do evento: {e.tipoEvento}
-      <br />
-      <span style={{ color: "deepskyblue" }}>Data: {dataBR(e.data)}</span>
-      <br />
-      Horário: {normalizarHorarioManual(e.horaInicio) || e.horaInicio || "Não informado"} às {normalizarHorarioManual(e.horaFim) || e.horaFim || "Não informado"}
-      <br />
-      Duração: {calcularDuracao(e.horaInicio, e.horaFim)}
-      <br />
-      WhatsApp: {e.whatsapp}
-      <br />
-      Pacote: {e.pacote === "Outro" ? e.pacotePersonalizado : e.pacote || "Não informado"}
-      <br />
-      Endereço: {e.endereco || "Não informado"}
-      <br />
-      Cidade / bairro: {cidadeBairroFinal(e)}
-      <br />
-      {e.obs && (
-        <>
-          Observações: {e.obs}
-          <br />
-        </>
-      )}
-      <span style={{ color: "deepskyblue" }}>
-        Valor total: {moeda(Number(e.valor || 0))}
-        <br />
-        Entrada / sinal: {moeda(Number(e.entrada || 0))}
-        <br />
-        Forma da entrada: {e.formaEntrada || "Não informada"}
-        <br />
-        Forma de pagamento: {e.formaPagamento || "Não informada"}
-        <br />
-        {e.parcelas && (
-          <>
-            Parcelas: {e.parcelas}
-            <br />
-          </>
-        )}
-      </span>
-      <span style={{ color: corStatus(e), fontWeight: "bold" }}>
-        Pendente: {e.quitado ? moeda(0) : moeda(Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0))}
-        <br />
-        Status: {textoStatus(e)}
-      </span>
-      <br />
-      {resumoHistorico(e).length > 0 && (
-        <details style={{ marginTop: 8, marginBottom: 8 }}>
-          <summary style={{ cursor: "pointer", color: "#c4b5fd", fontWeight: "bold" }}>Histórico rápido</summary>
-          {resumoHistorico(e).map((h) => (
-            <div key={h.id} style={{ fontSize: 13, borderBottom: "1px solid #374151", padding: "4px 0" }}>
-              {h.data} - {h.acao}{h.detalhe ? `: ${h.detalhe}` : ""}
+  const CardEvento = ({ e }) => {
+    const total = Number(e.valor || 0);
+    const entrada = Number(e.entrada || 0);
+    const pendente = e.quitado ? 0 : Math.max(total - entrada, 0);
+    const lucro = total - Number(e.custo || 0);
+
+    return (
+      <div style={{ ...estilos.card, borderColor: corStatus(e) }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+          <div>
+            <strong style={{ color: e.executado ? "#86efac" : "white", fontSize: 20 }}>{e.nome}</strong>
+            <div style={{ marginTop: 6 }}>
+              <span style={estilos.badge}>{textoStatusCurto(e)}</span>
+              {e.executado && <span style={{ ...estilos.badge, background: "rgba(34,197,94,0.16)", color: "#bbf7d0" }}>✔ Executado</span>}
             </div>
-          ))}
-        </details>
-      )}
-      <button style={estilos.botaoRoxo} onClick={() => gerarProposta(e)}>Proposta PDF</button>
-      <button style={estilos.botao} onClick={() => gerarContrato(e)}>Contrato</button>
-      <button style={estilos.botao} onClick={() => abrirRecibo(e)}>Recibo</button>
-      <button style={estilos.botao} onClick={() => abrirWhatsApp(e)}>WhatsApp</button>
-      <button style={estilos.botao} onClick={() => abrirWhatsAppCobrarSinal(e)}>Cobrar sinal</button>
-      <button style={estilos.botao} onClick={() => abrirWhatsAppLembrarPagamento(e)}>Lembrar pagamento</button>
-      <button style={estilos.botao} onClick={() => abrirWhatsAppConfirmarEvento(e)}>Confirmar evento</button>
-      <button style={estilos.botaoRoxo} onClick={() => abrirWhatsAppProposta(e)}>Enviar proposta completa</button>
-      <button
-        style={estilos.botao}
-        onClick={() => {
-          navigator.clipboard.writeText(mensagemComPreco(e));
-          alert("Mensagem profissional copiada!");
-        }}
-      >
-        Copiar proposta
-      </button>
-      <button style={estilos.botao} onClick={() => abrirGoogleAgenda(e)}>📅 Google Agenda</button>
-      <button
-        style={estilos.botao}
-        onClick={() => {
-          navigator.clipboard.writeText(textoCompleto(e));
-          alert("Cadastro copiado!");
-        }}
-      >
-        Copiar
-      </button>
-      <button style={estilos.botao} onClick={() => editarEvento(e)}>✏️ Editar</button>
-      <button style={estilos.botao} onClick={() => marcarQuitado(e.id, true)}>Marcar pago</button>
-      <button style={estilos.botao} onClick={() => marcarQuitado(e.id, false)}>Marcar pendente</button>
-      <button style={estilos.botaoRoxo} onClick={() => fecharComCliente(e)}>Fechar com cliente</button>
-      <button style={estilos.botao} onClick={() => setEventos((lista) => lista.map((ev) => (ev.id === e.id ? { ...ev, status: "pre", quitado: false, historico: [criarRegistroHistorico("Voltou para pré-reserva", "Reserva deixou de estar confirmada"), ...(Array.isArray(ev.historico) ? ev.historico : [])].slice(0, 50) } : ev)))}>Voltar para pré-reserva</button>
-      <button style={estilos.botao} onClick={() => setEventos((lista) => lista.map((ev) => (ev.id === e.id ? { ...ev, status: "confirmado", historico: [criarRegistroHistorico("Reserva confirmada", "Status alterado manualmente"), ...(Array.isArray(ev.historico) ? ev.historico : [])].slice(0, 50) } : ev)))}>Confirmar reserva</button>
-      <button style={{ ...estilos.botao, background: "#92400e" }} onClick={() => liberarData(e)}>Liberar data</button>
-      <button style={estilos.botao} onClick={() => toggleExecutado(e.id)}>
-        {e.executado ? "✔ Executado" : "Marcar executado"}
-      </button>
-      <button style={{ ...estilos.botao, background: "#991b1b" }} onClick={() => excluirEvento(e.id)}>Excluir</button>
-    </div>
-  );
+          </div>
+          <div style={{ textAlign: isMobile ? "left" : "right" }}>
+            <strong style={{ color: "#93c5fd" }}>{dataBR(e.data)}</strong><br />
+            <span>{normalizarHorarioManual(e.horaInicio) || e.horaInicio || "Não informado"} às {normalizarHorarioManual(e.horaFim) || e.horaFim || "Não informado"}</span>
+          </div>
+        </div>
+
+        <div style={estilos.miniInfo}>
+          <div style={estilos.linhaInfo}><strong>🎉 Evento</strong><br />{e.tipoEvento || "Não informado"}</div>
+          <div style={estilos.linhaInfo}><strong>📍 Local</strong><br />{cidadeBairroFinal(e)}<br />{e.endereco || "Endereço não informado"}</div>
+          <div style={estilos.linhaInfo}><strong>📦 Pacote</strong><br />{e.pacote === "Outro" ? e.pacotePersonalizado : e.pacote || "Não informado"}</div>
+          <div style={estilos.linhaInfo}><strong>📞 WhatsApp / Documento</strong><br />{e.whatsapp || "Não informado"}<br />{rotuloDocumentoCliente(e.cpf)}: {e.cpf || "Não informado"}</div>
+        </div>
+
+        <div style={{ ...estilos.cardFinanceiro, marginTop: 10 }}>
+          <strong>💰 Resumo financeiro</strong>
+          <div style={estilos.miniInfo}>
+            <span>Total: <strong>{moeda(total)}</strong></span>
+            <span>Sinal: <strong>{moeda(entrada)}</strong></span>
+            <span>Pendente: <strong style={{ color: pendente > 0 ? "#fca5a5" : "#86efac" }}>{moeda(pendente)}</strong></span>
+            <span>Lucro estimado: <strong>{moeda(lucro)}</strong></span>
+          </div>
+        </div>
+
+        {e.obs && (
+          <details style={{ marginTop: 10 }}>
+            <summary style={{ cursor: "pointer", color: "#c4b5fd", fontWeight: "bold" }}>Observações</summary>
+            <p style={{ whiteSpace: "pre-wrap" }}>{limparObservacoesInternas(e.obs)}</p>
+          </details>
+        )}
+
+        {resumoHistorico(e).length > 0 && (
+          <details style={{ marginTop: 8, marginBottom: 8 }}>
+            <summary style={{ cursor: "pointer", color: "#c4b5fd", fontWeight: "bold" }}>Histórico rápido</summary>
+            {resumoHistorico(e).map((h) => (
+              <div key={h.id} style={{ fontSize: 13, borderBottom: "1px solid #374151", padding: "4px 0" }}>
+                {h.data} - {h.acao}{h.detalhe ? `: ${h.detalhe}` : ""}
+              </div>
+            ))}
+          </details>
+        )}
+
+        <div style={estilos.grupoAcoes}>
+          <div style={estilos.tituloGrupo}>Documentos</div>
+          <button style={estilos.botaoRoxo} onClick={() => gerarProposta(e)}>Proposta PDF</button>
+          <button style={estilos.botaoPequeno} onClick={() => gerarContrato(e)}>Contrato</button>
+          <button style={estilos.botaoPequeno} onClick={() => abrirRecibo(e)}>Recibo</button>
+          <button style={estilos.botaoRoxo} onClick={() => fecharComCliente(e)}>Fechar com cliente</button>
+        </div>
+
+        <div style={estilos.grupoAcoes}>
+          <div style={estilos.tituloGrupo}>WhatsApp</div>
+          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsApp(e)}>Abrir conversa</button>
+          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppCobrarSinal(e)}>Cobrar sinal</button>
+          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppLembrarPagamento(e)}>Lembrar pagamento</button>
+          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppConfirmarEvento(e)}>Confirmar evento</button>
+          <button style={estilos.botaoRoxo} onClick={() => abrirWhatsAppProposta(e)}>Enviar proposta</button>
+          <button style={estilos.botaoPequeno} onClick={() => { navigator.clipboard.writeText(mensagemComPreco(e)); alert("Mensagem profissional copiada!"); }}>Copiar proposta</button>
+        </div>
+
+        <div style={estilos.grupoAcoes}>
+          <div style={estilos.tituloGrupo}>Gestão</div>
+          <button style={estilos.botaoPequeno} onClick={() => abrirGoogleAgenda(e)}>📅 Google Agenda</button>
+          <button style={estilos.botaoPequeno} onClick={() => { navigator.clipboard.writeText(textoCompleto(e)); alert("Cadastro copiado!"); }}>Copiar cadastro</button>
+          <button style={estilos.botaoPequeno} onClick={() => editarEvento(e)}>✏️ Editar</button>
+          <button style={estilos.botaoPequeno} onClick={() => marcarQuitado(e.id, true)}>Marcar pago</button>
+          <button style={estilos.botaoPequeno} onClick={() => marcarQuitado(e.id, false)}>Marcar pendente</button>
+          <button style={estilos.botaoPequeno} onClick={() => setEventos((lista) => lista.map((ev) => (ev.id === e.id ? { ...ev, status: "pre", quitado: false, historico: [criarRegistroHistorico("Voltou para pré-reserva", "Reserva deixou de estar confirmada"), ...(Array.isArray(ev.historico) ? ev.historico : [])].slice(0, 50) } : ev)))}>Pré-reserva</button>
+          <button style={estilos.botaoPequeno} onClick={() => setEventos((lista) => lista.map((ev) => (ev.id === e.id ? { ...ev, status: "confirmado", historico: [criarRegistroHistorico("Reserva confirmada", "Status alterado manualmente"), ...(Array.isArray(ev.historico) ? ev.historico : [])].slice(0, 50) } : ev)))}>Confirmar reserva</button>
+          <button style={{ ...estilos.botaoPequeno, background: "#92400e" }} onClick={() => liberarData(e)}>Liberar data</button>
+          <button style={estilos.botaoPequeno} onClick={() => toggleExecutado(e.id)}>{e.executado ? "✔ Executado" : "Marcar executado"}</button>
+          <button style={{ ...estilos.botaoPequeno, background: "#991b1b" }} onClick={() => excluirEvento(e.id)}>Excluir</button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div style={estilos.pagina}>
-      <h1 style={estilos.titulo}>JP Eventos</h1>
-      <p style={estilos.subtitulo}>Cadastro, agenda, contratos, recibos e financeiro</p>
+      <h1 style={estilos.titulo}>JP Eventos Pro v18</h1>
+      <p style={estilos.subtitulo}>Sistema profissional de agenda, propostas, contratos, recibos, WhatsApp e financeiro</p>
 
       <div style={{ ...estilos.card, borderColor: bancoStatus.startsWith("Online") ? "#22c55e" : bancoStatus.startsWith("Erro") ? "#ef4444" : "#6c2bd9", padding: 10 }}>
         <strong>☁️ Banco online:</strong> {bancoStatus}
@@ -2473,8 +2577,8 @@ const horaFimFinal =
           </div>
 
           <div style={{ ...estilos.card, borderColor: appInstalavel ? "#22c55e" : "#6c2bd9" }}>
-            <h3>📱 App no celular</h3>
-            <p>Este sistema já está online. Para usar como aplicativo, abra no celular e adicione à tela inicial.</p>
+            <h3>📱 Instalação no celular</h3>
+            <p>Use como app: Android/Chrome pelos 3 pontinhos &gt; Adicionar à tela inicial. No iPhone/Safari: Compartilhar &gt; Adicionar à Tela de Início.</p>
             <button style={appInstalavel ? estilos.botaoRoxo : estilos.botao} onClick={instalarAppNoCelular}>
               Instalar / adicionar à tela inicial
             </button>
@@ -2541,7 +2645,7 @@ const horaFimFinal =
 <input style={estilos.input} value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} />
 
 <label style={{ fontWeight: "bold" }}>CPF / CNPJ:</label>
-<input style={estilos.input} placeholder="CPF ou CNPJ do cliente/empresa" value={form.cpf} onChange={(e) => setForm({ ...form, cpf: e.target.value })} />
+<input style={estilos.input} placeholder="CPF ou CNPJ do cliente/empresa" value={form.cpf} onChange={(e) => setForm({ ...form, cpf: formatarDocumentoCliente(e.target.value) })} />
 
 <label style={{ fontWeight: "bold" }}>WHATSAPP:</label>
 <input style={estilos.input} value={form.whatsapp} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} />
@@ -2914,8 +3018,9 @@ const horaFimFinal =
 
           <div style={estilos.card}>
             <h3>📱 Modo celular / instalação</h3>
-            <p>O sistema aumenta botões e campos automaticamente quando aberto em tela pequena.</p>
+            <p>O sistema ajusta botões, cards e campos automaticamente para celular.</p>
             <p><strong>Tamanho detectado:</strong> {larguraTela}px</p>
+            <p><strong>Dica:</strong> depois de instalar, abra pelo ícone na tela inicial para ficar com aparência de aplicativo.</p>
             <button style={appInstalavel ? estilos.botaoRoxo : estilos.botao} onClick={instalarAppNoCelular}>Instalar app / adicionar à tela inicial</button>
             <p style={{ color: "#c4b5fd" }}>No celular: abra o link, toque nos 3 pontinhos do navegador e escolha “Adicionar à tela inicial”.</p>
           </div>
