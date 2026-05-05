@@ -53,7 +53,9 @@ export default function App() {
     obs: "",
     status: "pre",
     executado: false,
-    quitado: false
+    quitado: false,
+    obsInternas: "",
+    obsExtras: "",
   };
 
   const PACOTES_PROFISSIONAIS = {
@@ -288,7 +290,7 @@ export default function App() {
     forma_entrada: evento.formaEntrada || "",
     forma_pagamento: evento.formaPagamento || "",
     parcelas: evento.parcelas || "",
-    obs: evento.obs || "",
+    obs: juntarObservacoesJP(evento.obsInternas ?? evento.obs, evento.obsExtras),
     status: evento.status || "pre",
     executado: Boolean(evento.executado),
     quitado: Boolean(evento.quitado),
@@ -317,6 +319,8 @@ export default function App() {
     formaPagamento: row.forma_pagamento || "",
     parcelas: row.parcelas || "",
     obs: row.obs || "",
+    obsInternas: separarObservacoesJP(row.obs || "").internas,
+    obsExtras: separarObservacoesJP(row.obs || "").extras,
     status: row.status || "pre",
     executado: Boolean(row.executado),
     quitado: Boolean(row.quitado),
@@ -649,6 +653,43 @@ Se aparecer o botão automático de instalação, use ele primeiro.`);
     }
   };
 
+
+  const separarObservacoesJP = (texto = "") => {
+    const bruto = String(texto || "");
+    const marcador = "\n--- OBSERVAÇÕES EXTRAS ---\n";
+
+    if (!bruto.includes(marcador.trim())) {
+      return { internas: bruto, extras: "" };
+    }
+
+    const partes = bruto.split(marcador.trim());
+    return {
+      internas: (partes[0] || "").trim(),
+      extras: partes.slice(1).join(marcador.trim()).trim()
+    };
+  };
+
+  const juntarObservacoesJP = (internas = "", extras = "") => {
+    const parteInterna = String(internas || "").trim();
+    const parteExtra = String(extras || "").trim();
+
+    if (parteInterna && parteExtra) {
+      return `${parteInterna}\n--- OBSERVAÇÕES EXTRAS ---\n${parteExtra}`;
+    }
+
+    return parteExtra || parteInterna || "";
+  };
+
+  const observacoesInternasJP = (evento) => {
+    if (evento?.obsInternas !== undefined) return String(evento.obsInternas || "");
+    return separarObservacoesJP(evento?.obs || "").internas;
+  };
+
+  const observacoesExtrasJP = (evento) => {
+    if (evento?.obsExtras !== undefined) return String(evento.obsExtras || "");
+    return separarObservacoesJP(evento?.obs || "").extras;
+  };
+
   const moeda = (valor) =>
     Number(valor || 0).toLocaleString("pt-BR", {
       style: "currency",
@@ -661,7 +702,6 @@ Se aparecer o botão automático de instalação, use ele primeiro.`);
     if (nums.length === 11) return "CPF";
     return "CPF/CNPJ";
   };
-
 
   const formatarDocumentoCliente = (valor) => {
     const nums = String(valor || "").replace(/[^0-9]/g, "").slice(0, 14);
@@ -723,6 +763,7 @@ Se aparecer o botão automático de instalação, use ele primeiro.`);
     String(obs || "")
       .split("\n")
       .filter((linha) => {
+        if (normalizarTexto(linha).includes("--- observacoes extras ---")) return false;
         const l = normalizarTexto(linha);
         return (
           !l.includes("sugestao de pacote") &&
@@ -757,7 +798,6 @@ Se aparecer o botão automático de instalação, use ele primeiro.`);
 
     return cidade || bairro || "Não informado";
   };
-
 
   const temSinal = (e) => Number(e?.entrada || 0) > 0;
 
@@ -898,7 +938,6 @@ Com essas informações eu confiro a agenda e te envio a melhor opção com valo
 
   return "";
 };
-
 
   const pegarHoraTexto = (texto) => {
     const t = normalizarTexto(texto);
@@ -1717,7 +1756,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     const valorExtraido = totalPagoExtraido || "";
 
     const obsExtras = [
-      form.obs,
+      observacoesInternasJP(form),
       localEvento ? `Local informado: ${localEvento}` : "",
       quantidadeHoras ? `Duração informada: ${quantidadeHoras} hora(s)` : "",
       idade ? `Idade informada: ${idade} anos` : "",
@@ -1746,7 +1785,9 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       entrada: campoFoiPreenchido(form.entrada) ? String(form.entrada) : (entradaExtraida ? String(entradaExtraida) : (pacoteInfo(pacoteSugerido)?.entrada ? String(pacoteInfo(pacoteSugerido).entrada) : "0")),
       formaEntrada: form.formaEntrada || (pacoteInfo(pacoteSugerido) ? "Pix" : form.formaEntrada),
       formaPagamento: form.formaPagamento || (pacoteInfo(pacoteSugerido) ? "Entrada / sinal" : form.formaPagamento),
-      obs: obsExtras
+      obsInternas: obsExtras,
+      obsExtras: form.obsExtras || "",
+      obs: juntarObservacoesJP(obsExtras, form.obsExtras || "")
     });
 
     setTextoWhatsApp(textoOriginal);
@@ -1775,7 +1816,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   const exportarBackup = () => {
     const dados = {
       sistema: "JP Eventos",
-      versao: "24.0 sincronizacao automatica",
+      versao: "24.4 observacoes separadas",
       dataBackup: new Date().toLocaleString("pt-BR"),
       eventos
     };
@@ -1883,6 +1924,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
 
     const dadosEvento = {
       ...form,
+      obs: juntarObservacoesJP(form.obsInternas ?? form.obs, form.obsExtras),
       horaInicio: normalizarHorarioManual(form.horaInicio) || form.horaInicio,
       horaFim: normalizarHorarioManual(form.horaFim) || form.horaFim,
       status: form.status || "pre",
@@ -1933,7 +1975,13 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   };
 
   const editarEvento = (evento) => {
-    setForm({ ...formInicial, ...evento });
+    setForm({
+      ...formInicial,
+      ...evento,
+      obsInternas: observacoesInternasJP(evento),
+      obsExtras: observacoesExtrasJP(evento),
+      obs: juntarObservacoesJP(observacoesInternasJP(evento), observacoesExtrasJP(evento))
+    });
     setEditandoId(evento.id);
     setAba("cadastro");
   };
@@ -2056,7 +2104,6 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
 
     abrirWhatsAppComMensagem(evento, mensagem, "Mensagem personalizada", "Mensagem personalizada aberta", "Cliente recebeu mensagem editável");
   };
-
 
   const mensagemPremiumSemIA = (evento, tipo = "followup") => {
     const total = Number(evento?.valor || 0);
@@ -2285,7 +2332,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     return [
       `Nome: ${e.nome}`,
       `${rotuloDocumentoCliente(e.cpf)}: ${e.cpf || "Não informado"}`,
-      `Conferência do documento: ${textoDocumentoValidacao(e.cpf)}`,
+
       `WhatsApp: ${e.whatsapp}`,
       `Tipo do evento: ${e.tipoEvento}`,
       `Data do evento: ${dataBR(e.data)}`,
@@ -2301,11 +2348,29 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       e.parcelas ? `Parcelas: ${e.parcelas}` : "",
       `Pendente: ${moeda(pendente)}`,
       `Status: ${textoStatus(e)}`,
-      `Observações: ${limparObservacoesInternas(e.obs) || "Nenhuma"}`,
+      `Observações: ${observacoesExtrasJP(e) || "Nenhuma"}`,
       `Data do cadastro: ${e.dataCadastro || "Não informado"}`
     ]
       .filter(Boolean)
       .join("\n");
+  };
+
+
+  const atualizarObservacaoEvento = (evento, valor) => {
+    if (!evento?.id) return;
+
+    const atualizados = eventos.map((item) => {
+      if (item.id !== evento.id) return item;
+
+      const internas = observacoesInternasJP(item);
+      return {
+        ...item,
+        obsExtras: valor,
+        obs: juntarObservacoesJP(internas, valor)
+      };
+    });
+
+    setEventos(atualizados);
   };
 
   const abrirRecibo = (evento) => {
@@ -2354,6 +2419,12 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     };
   };
 
+
+  const observacoesDocumento = (evento) => {
+    const texto = String(observacoesExtrasJP(evento) || "").trim();
+    return texto || "Nenhuma observação informada.";
+  };
+
   const gerarDocumentoEvento = (e, tipo = "contrato") => {
     const ehProposta = tipo === "proposta";
     const doc = new jsPDF();
@@ -2362,7 +2433,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     const pendente = e.quitado ? 0 : Math.max(total - entrada, 0);
     const pacoteFinal = e.pacote === "Outro" ? e.pacotePersonalizado : e.pacote || "Não informado";
     const hojeContrato = new Date().toLocaleDateString("pt-BR");
-    const obsLimpa = limparObservacoesInternas(e.obs);
+    const obsLimpa = observacoesDocumento(e);
 
     const margem = 14;
     const larguraPagina = 210;
@@ -2487,7 +2558,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     secao(ehProposta ? "DADOS DO CLIENTE" : "DADOS DO CONTRATANTE");
     campo("Nome", e.nome);
     campo(rotuloDocumentoCliente(e.cpf), e.cpf || "Não informado");
-    campo("Conferência do documento", textoDocumentoValidacao(e.cpf));
+
     campo("WhatsApp", e.whatsapp);
 
     secao("DADOS DO EVENTO");
@@ -2508,7 +2579,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     campo("Saldo pendente", moeda(pendente));
 
     secao("OBSERVAÇÕES");
-    paragrafo(limparObservacoesInternas(e.obs) || "Nenhuma observação informada.");
+    paragrafo(obsLimpa);
 
     linhaSeparadora();
     secao(ehProposta ? "CONDIÇÕES DA PROPOSTA" : "CLÁUSULAS DO CONTRATO");
@@ -2609,71 +2680,218 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   const gerarRecibo = () => {
     if (!reciboAberto) return;
 
-    const e = reciboAberto;
+    const e = prepararEventoDocumento(reciboAberto);
     const doc = new jsPDF();
     const total = Number(e.valor || 0);
     const entrada = Number(e.entrada || 0);
     const pendente = tipoRecibo === "total" ? 0 : Math.max(total - entrada, 0);
     const valorRecibo = tipoRecibo === "sinal" ? entrada : total;
+    const pacoteFinal = e.pacote === "Outro" ? e.pacotePersonalizado : e.pacote || "Não informado";
     const titulo = tipoRecibo === "sinal" ? "RECIBO DE SINAL / ENTRADA" : "RECIBO DE PAGAMENTO TOTAL";
+    const subtitulo = tipoRecibo === "sinal" ? "Reserva de data confirmada mediante sinal" : "Pagamento total confirmado";
+    const dataEmissao = new Date().toLocaleDateString("pt-BR");
+    const obsRecibo = String(observacoesDocumento(e) || "").trim();
 
-    doc.setFillColor(30, 60, 150);
-    doc.rect(0, 0, 210, 50, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text(titulo, 105, 22, { align: "center" });
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(12);
-    doc.text("@JP Eventos Fortaleza | @Vdj JeanMix", 105, 32, { align: "center" });
-    doc.text("WhatsApp: (85) 98708-3412", 105, 40, { align: "center" });
-    doc.setTextColor(0, 0, 0);
+    const margem = 14;
+    const larguraPagina = 210;
+    const larguraConteudo = 182;
+    let y = 0;
 
-    let y = 70;
-    const linhas = [
-      `Recebi de: ${e.nome}`,
-      `${rotuloDocumentoCliente(e.cpf)}: ${e.cpf || "Não informado"}`,
-      `Conferência do documento: ${textoDocumentoValidacao(e.cpf)}`,
-      `WhatsApp: ${e.whatsapp}`,
-      `Tipo do evento: ${e.tipoEvento}`,
-      `Data do evento: ${dataBR(e.data)}`,
-      `Horário: ${normalizarHorarioManual(e.horaInicio) || e.horaInicio || "Não informado"} às ${normalizarHorarioManual(e.horaFim) || e.horaFim || "Não informado"}`,
-      `Endereço: ${e.endereco || "Não informado"}`,
-      `Cidade / bairro: ${cidadeBairroFinal(e)}`,
-      `Pacote: ${e.pacote === "Outro" ? e.pacotePersonalizado : e.pacote || "Não informado"}`,
-      `Tipo do recibo: ${tipoRecibo === "sinal" ? "Sinal / Entrada" : "Pagamento total"}`,
-      `Forma de pagamento: ${pagamentoRecibo}`,
-      `Valor deste recibo: ${moeda(valorRecibo)}`,
-      `Valor total do evento: ${moeda(total)}`,
-      `Entrada / sinal: ${moeda(entrada)}`,
-      `Pendente: ${moeda(pendente)}`
-    ];
+    const limparNomeArquivo = (nome) =>
+      String(nome || "cliente")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9]/g, "_")
+        .replace(/_+/g, "_")
+        .toLowerCase();
 
-    linhas.forEach((linha) => {
-      doc.text(linha, 14, y);
+    const texto = (conteudo, x, posY, opcoes = {}) => {
+      doc.text(String(conteudo || ""), x, posY, opcoes);
+    };
+
+    const garantirEspaco = (alturaNecessaria) => {
+      if (y + alturaNecessaria <= 276) return;
+      doc.addPage();
+      desenharCabecalho(false);
+      y = 42;
+    };
+
+    const desenharCabecalho = (primeiraPagina = true) => {
+      doc.setFillColor(20, 24, 38);
+      doc.rect(0, 0, larguraPagina, primeiraPagina ? 46 : 30, "F");
+
+      doc.setFillColor(108, 43, 217);
+      doc.rect(0, 0, 6, primeiraPagina ? 46 : 30, "F");
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(primeiraPagina ? 16 : 12);
+      texto(primeiraPagina ? titulo : "JP Eventos - Recibo", 105, primeiraPagina ? 17 : 16, { align: "center" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      texto("@JP Eventos Fortaleza | @Vdj JeanMix", 105, primeiraPagina ? 28 : 23, { align: "center" });
+      if (primeiraPagina) texto("WhatsApp: (85) 98708-3412", 105, 36, { align: "center" });
+
+      doc.setTextColor(0, 0, 0);
+    };
+
+    const secao = (tituloSecao) => {
+      garantirEspaco(15);
+      doc.setFillColor(245, 243, 255);
+      doc.setDrawColor(108, 43, 217);
+      doc.roundedRect(margem, y, larguraConteudo, 9, 2, 2, "FD");
+      doc.setTextColor(55, 48, 163);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      texto(tituloSecao, margem + 4, y + 6.2);
+      doc.setTextColor(0, 0, 0);
+      y += 13;
+    };
+
+    const campo = (rotulo, valor) => {
+      const conteudo = `${rotulo}: ${valor || "Não informado"}`;
+      const linhas = doc.splitTextToSize(conteudo, larguraConteudo - 6);
+      garantirEspaco(linhas.length * 6 + 3);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      const primeiraLinha = linhas[0] || "";
+      const posDoisPontos = primeiraLinha.indexOf(":");
+
+      if (posDoisPontos >= 0) {
+        texto(primeiraLinha.slice(0, posDoisPontos + 1), margem, y);
+        doc.setFont("helvetica", "normal");
+        texto(primeiraLinha.slice(posDoisPontos + 1).trim(), margem + 52, y);
+      } else {
+        texto(primeiraLinha, margem, y);
+      }
+
+      doc.setFont("helvetica", "normal");
+      for (let i = 1; i < linhas.length; i += 1) {
+        y += 6;
+        texto(linhas[i], margem + 52, y);
+      }
       y += 7;
-    });
+    };
 
-    y += 10;
-    const texto =
+    const paragrafo = (conteudo) => {
+      const linhas = doc.splitTextToSize(String(conteudo || ""), larguraConteudo);
+      garantirEspaco(linhas.length * 6 + 4);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.text(linhas, margem, y);
+      y += linhas.length * 6 + 4;
+    };
+
+    const cardFinanceiro = (rotulo, valor, corRgb, x, largura = 56) => {
+      doc.setFillColor(250, 250, 252);
+      doc.setDrawColor(230, 230, 240);
+      doc.roundedRect(x, y, largura, 24, 3, 3, "FD");
+
+      doc.setTextColor(90, 90, 100);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      texto(rotulo, x + 4, y + 7);
+
+      doc.setTextColor(corRgb[0], corRgb[1], corRgb[2]);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      texto(valor, x + 4, y + 17);
+      doc.setTextColor(0, 0, 0);
+    };
+
+    desenharCabecalho(true);
+    y = 54;
+
+    doc.setFillColor(250, 250, 252);
+    doc.setDrawColor(230, 230, 240);
+    doc.roundedRect(margem, y - 6, larguraConteudo, 22, 3, 3, "FD");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    texto(subtitulo, margem + 5, y + 1);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    texto(`Emitido em Fortaleza/CE, ${dataEmissao}`, margem + 5, y + 9);
+    texto(`Valor recebido neste recibo: ${moeda(valorRecibo)}`, margem + 5, y + 16);
+    y += 30;
+
+    secao("CLIENTE");
+    campo("Nome", e.nome);
+    campo(rotuloDocumentoCliente(e.cpf), e.cpf || "Não informado");
+    campo("WhatsApp", e.whatsapp || "Não informado");
+
+    secao("EVENTO");
+    campo("Tipo", e.tipoEvento || "Não informado");
+    campo("Data", dataBR(e.data));
+    campo("Horário", `${normalizarHorarioManual(e.horaInicio) || e.horaInicio || "Não informado"} às ${normalizarHorarioManual(e.horaFim) || e.horaFim || "Não informado"}`);
+    campo("Local", `${e.endereco || "Não informado"} - ${cidadeBairroFinal(e)}`);
+    campo("Pacote", pacoteFinal);
+
+    secao("FINANCEIRO");
+    garantirEspaco(30);
+    cardFinanceiro("VALOR TOTAL", moeda(total), [37, 99, 235], margem, 56);
+    cardFinanceiro("ENTRADA / SINAL", moeda(entrada), [202, 138, 4], margem + 63, 56);
+    cardFinanceiro(tipoRecibo === "total" ? "STATUS" : "PENDENTE", tipoRecibo === "total" ? "QUITADO" : moeda(pendente), tipoRecibo === "total" ? [22, 163, 74] : [220, 38, 38], margem + 126, 56);
+    y += 31;
+
+    campo("Tipo do recibo", tipoRecibo === "sinal" ? "Sinal / entrada" : "Pagamento total");
+    campo("Forma de pagamento", pagamentoRecibo || "Não informada");
+    campo("Valor recebido", moeda(valorRecibo));
+
+    if (obsRecibo && obsRecibo !== "Nenhuma observação informada.") {
+      secao("OBSERVAÇÕES");
+      paragrafo(obsRecibo);
+    }
+
+    secao("DECLARAÇÃO");
+    paragrafo(
       tipoRecibo === "sinal"
-        ? `Declaro que recebi o valor de ${moeda(valorRecibo)} referente ao sinal/entrada para reserva da data do evento acima descrito.`
-        : `Declaro que recebi o valor total de ${moeda(valorRecibo)} referente à prestação de serviço para o evento acima descrito.`;
+        ? `Declaro que recebi de ${e.nome || "cliente"} o valor de ${moeda(valorRecibo)} referente ao sinal/entrada para reserva da data do evento acima descrito.`
+        : `Declaro que recebi de ${e.nome || "cliente"} o valor total de ${moeda(valorRecibo)} referente à prestação de serviço para o evento acima descrito, ficando o pagamento quitado.`
+    );
 
-    const textoQuebrado = doc.splitTextToSize(texto, 180);
-    doc.text(textoQuebrado, 14, y);
-    y += textoQuebrado.length * 7 + 15;
-    doc.text(`Fortaleza/CE, ${new Date().toLocaleDateString("pt-BR")}`, 14, y);
-    y += 15;
-    doc.addImage(assinatura, "PNG", 20, y, 55, 25);
-    y += 28;
-    doc.line(14, y, 95, y);
-    y += 7;
-    doc.text("Jean Carlos da Silva", 54, y, { align: "center" });
+    garantirEspaco(55);
+    y += 5;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    texto(`Fortaleza/CE, ${dataEmissao}`, margem, y);
+    y += 14;
+
+    try {
+      doc.addImage(assinatura, "PNG", margem + 7, y, 55, 25);
+    } catch {
+      // Caso a assinatura não carregue, o recibo continua sendo gerado.
+    }
+
+    y += 29;
+    doc.setDrawColor(0, 0, 0);
+    doc.line(margem, y, margem + 82, y);
     y += 6;
-    doc.text("Assinatura / responsável", 54, y, { align: "center" });
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    texto("Jean Carlos da Silva", margem + 41, y, { align: "center" });
+    y += 5;
+    doc.setFont("helvetica", "normal");
+    texto("Responsável JP Eventos", margem + 41, y, { align: "center" });
 
-    doc.save(`recibo_${tipoRecibo}_${e.nome}.pdf`);
+    doc.line(margem + 100, y - 11, margem + 182, y - 11);
+    doc.setFont("helvetica", "bold");
+    texto(e.nome || "Cliente", margem + 141, y - 5, { align: "center" });
+    doc.setFont("helvetica", "normal");
+    texto("Cliente", margem + 141, y, { align: "center" });
+
+    const totalPaginas = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPaginas; i += 1) {
+      doc.setPage(i);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(120, 120, 130);
+      texto(`Página ${i} de ${totalPaginas}`, 196, 290, { align: "right" });
+      texto(`JP Eventos Fortaleza - Recibo gerado automaticamente | ${rotuloDocumentoCliente(e.cpf)}: ${e.cpf || "não informado"}`, margem, 290);
+      doc.setTextColor(0, 0, 0);
+    }
+
+    doc.save(`recibo_premium_${tipoRecibo}_${limparNomeArquivo(e.nome)}.pdf`);
 
     if (tipoRecibo === "total") {
       marcarQuitado(e.id, true);
@@ -3025,9 +3243,9 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
         <div style={{ ...estilos.cardFinanceiro, marginTop: 10 }}>
           <strong>💰 Resumo financeiro</strong>
           <div style={estilos.miniInfo}>
-            <span>Total: <strong>{moeda(total)}</strong></span>
-            <span>Sinal: <strong>{moeda(entrada)}</strong></span>
-            <span>Pendente: <strong style={{ color: pendente > 0 ? "#fca5a5" : "#86efac" }}>{moeda(pendente)}</strong></span>
+            <span style={{ color: "#38bdf8" }}>Valor total: <strong>{moeda(total)}</strong></span>
+            <span style={{ color: "#facc15" }}>Entrada / sinal: <strong>{moeda(entrada)}</strong></span>
+            <span style={{ color: pendente > 0 ? "#ef4444" : "#22c55e" }}>Pendente: <strong>{moeda(pendente)}</strong></span>
             <span>Lucro estimado: <strong>{moeda(lucro)}</strong></span>
           </div>
         </div>
@@ -3078,8 +3296,8 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
           <button style={estilos.botaoPequeno} onClick={() => abrirGoogleAgenda(e)}>📅 Google Agenda</button>
           <button style={estilos.botaoPequeno} onClick={() => { navigator.clipboard.writeText(textoCompleto(e)); alert("Cadastro copiado!"); }}>Copiar cadastro</button>
           <button style={estilos.botaoPequeno} onClick={() => editarEvento(e)}>✏️ Editar</button>
-          <button style={estilos.botaoPequeno} onClick={() => marcarQuitado(e.id, true)}>Marcar pago</button>
-          <button style={estilos.botaoPequeno} onClick={() => marcarQuitado(e.id, false)}>Marcar pendente</button>
+          <button style={{ ...estilos.botaoPequeno, background: "#16a34a", borderColor: "#22c55e", color: "white" }} onClick={() => marcarQuitado(e.id, true)}>Quitar tudo</button>
+          <button style={{ ...estilos.botaoPequeno, background: "#991b1b", borderColor: "#ef4444", color: "white" }} onClick={() => marcarQuitado(e.id, false)}>Marcar pendente</button>
           <button style={estilos.botaoPequeno} onClick={() => setEventos((lista) => lista.map((ev) => (ev.id === e.id ? { ...ev, status: "pre", quitado: false, historico: [criarRegistroHistorico("Voltou para pré-reserva", "Reserva deixou de estar confirmada"), ...(Array.isArray(ev.historico) ? ev.historico : [])].slice(0, 50) } : ev)))}>Pré-reserva</button>
           <button style={estilos.botaoPequeno} onClick={() => setEventos((lista) => lista.map((ev) => (ev.id === e.id ? { ...ev, status: "confirmado", historico: [criarRegistroHistorico("Reserva confirmada", "Status alterado manualmente"), ...(Array.isArray(ev.historico) ? ev.historico : [])].slice(0, 50) } : ev)))}>Confirmar reserva</button>
           <button style={{ ...estilos.botaoPequeno, background: "#92400e" }} onClick={() => liberarData(e)}>Liberar data</button>
@@ -3156,7 +3374,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
           </div>
 
           <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20,83,45,0.18)" }}>
-            <h3>✅ V24 sem mensalidade</h3>
+            <h3>✅ V24.4 sem mensalidade</h3>
             <p>Mensagens inteligentes por modelo interno, WhatsApp editável, financeiro com entrada + saída + lucro, gráficos simples, sincronização automática e nenhum serviço pago obrigatório.</p>
           </div>
 
@@ -3231,8 +3449,8 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
           <div style={estilos.card}>
             <h3>💰 Financeiro rápido</h3>
             <div style={estilos.miniInfo}>
-              <div style={estilos.linhaInfo}><strong>Recebido</strong><br />{moeda(totalRecebido)}</div>
-              <div style={estilos.linhaInfo}><strong>Pendente</strong><br />{moeda(totalPendente)}</div>
+              <div style={{ ...estilos.linhaInfo, borderColor: "#22c55e", color: "#22c55e" }}><strong>Recebido</strong><br />{moeda(totalRecebido)}</div>
+              <div style={{ ...estilos.linhaInfo, borderColor: "#ef4444", color: "#ef4444" }}><strong>Pendente</strong><br />{moeda(totalPendente)}</div>
               <div style={estilos.linhaInfo}><strong>Lucro estimado</strong><br />{moeda(lucroTotal)}</div>
               <div style={estilos.linhaInfo}><strong>Meta do mês</strong><br />{percentualMetaMensal}%</div>
             </div>
@@ -3406,8 +3624,8 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             </div>
           )}
 
-          <label style={{ fontWeight: "bold" }}>VALOR TOTAL:</label><input ref={valorInputRef} style={estilos.input} placeholder="Digite aqui o valor final combinado" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} />
-          <label style={{ fontWeight: "bold" }}>ENTRADA / SINAL:</label><input ref={entradaInputRef} style={estilos.input} placeholder="Digite aqui o sinal combinado" value={form.entrada} onChange={(e) => setForm({ ...form, entrada: e.target.value })} />
+          <label style={{ fontWeight: "bold", color: "#38bdf8" }}>VALOR TOTAL:</label><input ref={valorInputRef} style={{ ...estilos.input, borderColor: "#38bdf8" }} placeholder="Digite aqui o valor final combinado" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} />
+          <label style={{ fontWeight: "bold", color: "#facc15" }}>ENTRADA / SINAL:</label><input ref={entradaInputRef} style={{ ...estilos.input, borderColor: "#facc15" }} placeholder="Digite aqui o sinal combinado" value={form.entrada} onChange={(e) => setForm({ ...form, entrada: e.target.value })} />
           <label style={{ fontWeight: "bold" }}>CUSTO DO EVENTO:</label><input style={estilos.input} placeholder="Ex: transporte, ajudante, aluguel, combustível..." value={form.custo || ""} onChange={(e) => setForm({ ...form, custo: e.target.value })} />
           <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20, 83, 45, 0.20)" }}>
             <strong>📈 Lucro estimado:</strong> {moeda(Number(form.valor || 0) - Number(form.custo || 0))}
@@ -3456,9 +3674,22 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
           </div>
 
           <label style={{ fontWeight: "bold" }}>OBSERVAÇÕES:</label>
-          <textarea style={estilos.textarea} value={form.obs} onChange={(e) => setForm({ ...form, obs: e.target.value })} />
+          <textarea
+            style={estilos.textarea}
+            value={form.obsInternas ?? ""}
+            onChange={(e) => setForm({ ...form, obsInternas: e.target.value })}
+            placeholder="Observações internas do cadastro. Esse campo não copia mais automaticamente para Observações Extras."
+          />
 
-          <button style={estilos.botaoRoxo} onClick={salvar}>{editandoId ? "Salvar edição" : "Salvar"}</button>
+          <label style={{ fontWeight: 900, display: "block", marginBottom: 6 }}>OBSERVAÇÕES EXTRAS:</label>
+          <textarea
+            style={{ ...estilos.textarea, minHeight: 120, lineHeight: 1.5 }}
+            value={form.obsExtras || ""}
+            onChange={(e) => setForm({ ...form, obsExtras: e.target.value })}
+            placeholder="Digite aqui observações para aparecer na proposta, contrato e recibo. Esse campo é separado das observações de cima."
+          />
+
+<button style={estilos.botaoRoxo} onClick={salvar}>{editandoId ? "Salvar edição" : "Salvar"}</button>
           <button style={estilos.botao} onClick={() => abrirWhatsAppProposta(form)}>Enviar proposta no WhatsApp</button>
           <button style={estilos.botaoRoxo} onClick={() => gerarProposta({ ...form, id: editandoId || Date.now(), dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR") })}>Proposta PDF agora</button>
           <button style={estilos.botao} onClick={() => gerarContrato({ ...form, id: editandoId || Date.now(), dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR"), status: "confirmado" })}>Contrato PDF agora</button>
@@ -3485,7 +3716,6 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
               </button>
             </div>
           )}
-
 
           <div style={{ marginBottom: 12 }}>
             {[
@@ -3754,9 +3984,9 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             <div style={estilos.cardResumo}><strong>💰 Hoje</strong><h2>{moeda(saldoHoje)}</h2></div>
             <div style={estilos.cardResumo}><strong>📅 Últimos 15 dias</strong><h2>{moeda(saldo15Dias)}</h2></div>
             <div style={estilos.cardResumo}><strong>📆 Mês</strong><h2>{moeda(saldoMes)}</h2></div>
-            <div style={estilos.cardResumo}><strong>💵 Recebido total</strong><h2>{moeda(totalRecebido)}</h2></div>
-            <div style={estilos.cardResumo}><strong>🧾 Entradas recebidas</strong><h2>{moeda(totalEntradas)}</h2></div>
-            <div style={estilos.cardResumo}><strong>⚠️ Pendente</strong><h2>{moeda(totalPendente)}</h2></div>
+            <div style={{ ...estilos.cardResumo, borderColor: "#38bdf8", color: "#38bdf8" }}><strong>💰 Valor total</strong><h2>{moeda(faturamentoTotal)}</h2></div>
+            <div style={{ ...estilos.cardResumo, borderColor: "#facc15", color: "#facc15" }}><strong>🧾 Entrada / sinal</strong><h2>{moeda(totalEntradas)}</h2></div>
+            <div style={{ ...estilos.cardResumo, borderColor: "#ef4444", color: "#ef4444" }}><strong>⚠️ Pendente</strong><h2>{moeda(totalPendente)}</h2></div>
             <div style={estilos.cardResumo}><strong>📉 Custos</strong><h2>{moeda(custoTotal)}</h2></div>
             <div style={estilos.cardResumo}><strong>📈 Lucro estimado</strong><h2>{moeda(lucroTotal)}</h2></div>
             <div style={estilos.cardResumo}><strong>🔐 Sinais recebidos</strong><h2>{moeda(sinaisRecebidos)}</h2></div>
@@ -3794,9 +4024,9 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
           <div style={estilos.card}>
             <h3>📊 Gráfico financeiro</h3>
             {[
-              ["Recebido", totalRecebido, "#22c55e"],
-              ["Pendente", totalPendente, "#ef4444"],
-              ["Faturamento total", faturamentoTotal, "#6c2bd9"]
+              ["Valor total", faturamentoTotal, "#38bdf8"],
+              ["Entrada / sinal", totalEntradas, "#facc15"],
+              ["Pendente", totalPendente, "#ef4444"]
             ].map(([nome, valor, cor]) => (
               <div key={nome} style={{ marginBottom: 12 }}>
                 <p>{nome}</p>
