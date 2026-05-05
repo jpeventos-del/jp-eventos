@@ -360,32 +360,37 @@ Se aparecer o botão automático de instalação, use ele primeiro.`);
   const estilos = {
     pagina: {
       minHeight: "100vh",
-      padding: isMobile ? 12 : 22,
-      background: "radial-gradient(circle at top left, rgba(124,58,237,0.28), transparent 30%), linear-gradient(135deg, #07070a, #111827 48%, #1f1235)",
+      padding: isMobile ? 12 : 24,
+      background: "radial-gradient(circle at top left, rgba(168,85,247,0.30), transparent 28%), radial-gradient(circle at top right, rgba(14,165,233,0.14), transparent 30%), linear-gradient(135deg, #050816, #0f172a 48%, #1e1236)",
       color: "white",
       fontFamily: "Inter, Arial, sans-serif"
     },
     titulo: {
       marginBottom: 4,
       color: "#ffffff",
-      letterSpacing: "-0.5px"
+      letterSpacing: "-1px",
+      fontSize: isMobile ? 28 : 42,
+      fontWeight: 900
     },
     subtitulo: {
       marginTop: 0,
-      color: "#c4b5fd"
+      color: "#c4b5fd",
+      fontSize: isMobile ? 14 : 17,
+      marginBottom: 22
     },
     input: {
       width: "100%",
       fontSize: isMobile ? 16 : 14,
       boxSizing: "border-box",
-      marginBottom: 10,
-      background: "rgba(15, 23, 42, 0.96)",
+      marginBottom: 12,
+      background: "rgba(15, 23, 42, 0.86)",
       color: "white",
-      padding: isMobile ? 12 : 10,
-      borderRadius: 12,
-      border: "1px solid rgba(167,139,250,0.55)",
+      padding: isMobile ? 14 : 13,
+      borderRadius: 16,
+      border: "1px solid rgba(167,139,250,0.48)",
       outline: "none",
-      boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.02)"
+      boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.03), 0 12px 30px rgba(0,0,0,0.18)",
+      backdropFilter: "blur(10px)"
     },
     textarea: {
       width: "100%",
@@ -413,15 +418,15 @@ Se aparecer o botão automático de instalação, use ele primeiro.`);
     },
     botaoRoxo: {
       margin: "4px 4px 4px 0",
-      padding: isMobile ? "10px 12px" : "8px 10px",
-      borderRadius: 10,
-      border: "1px solid rgba(255,255,255,0.10)",
-      background: "linear-gradient(135deg, #7c3aed, #9333ea)",
+      padding: isMobile ? "11px 14px" : "10px 13px",
+      borderRadius: 14,
+      border: "1px solid rgba(255,255,255,0.14)",
+      background: "linear-gradient(135deg, #8b5cf6, #a855f7 55%, #ec4899)",
       color: "white",
       cursor: "pointer",
-      fontWeight: "800",
+      fontWeight: "900",
       fontSize: isMobile ? 14 : 13,
-      boxShadow: "0 8px 20px rgba(124,58,237,0.22)"
+      boxShadow: "0 12px 28px rgba(168,85,247,0.28)"
     },
     botaoPequeno: {
       margin: "3px 3px 3px 0",
@@ -435,12 +440,13 @@ Se aparecer o botão automático de instalação, use ele primeiro.`);
       fontSize: isMobile ? 13 : 12
     },
     card: {
-      border: "1px solid rgba(139,92,246,0.68)",
-      background: "linear-gradient(180deg, rgba(17, 24, 39, 0.96), rgba(15, 23, 42, 0.92))",
-      padding: isMobile ? 12 : 16,
-      marginBottom: 14,
-      borderRadius: 18,
-      boxShadow: "0 18px 40px rgba(0,0,0,0.30), 0 0 18px rgba(108,43,217,0.16)"
+      border: "1px solid rgba(139,92,246,0.58)",
+      background: "linear-gradient(180deg, rgba(17, 24, 39, 0.88), rgba(15, 23, 42, 0.82))",
+      padding: isMobile ? 14 : 20,
+      marginBottom: 16,
+      borderRadius: 24,
+      boxShadow: "0 22px 55px rgba(0,0,0,0.34), 0 0 26px rgba(108,43,217,0.18)",
+      backdropFilter: "blur(12px)"
     },
     cardClaro: {
       border: "1px solid rgba(255,255,255,0.08)",
@@ -496,19 +502,26 @@ Se aparecer o botão automático de instalação, use ele primeiro.`);
       marginBottom: 20
     },
     cardResumo: {
-      background: "linear-gradient(135deg, rgba(88,28,135,0.92), rgba(30,41,59,0.96))",
-      border: "1px solid rgba(196,181,253,0.35)",
-      borderRadius: 18,
-      padding: 16,
-      boxShadow: "0 14px 30px rgba(0,0,0,0.28)",
-      minHeight: 94
+      background: "linear-gradient(135deg, rgba(88,28,135,0.90), rgba(30,41,59,0.82))",
+      border: "1px solid rgba(196,181,253,0.32)",
+      borderRadius: 22,
+      padding: 18,
+      boxShadow: "0 18px 38px rgba(0,0,0,0.30)",
+      minHeight: 94,
+      backdropFilter: "blur(10px)"
     },
     cardFinanceiro: {
-      background: "linear-gradient(135deg, rgba(6,78,59,0.55), rgba(30,41,59,0.92))",
-      border: "1px solid rgba(34,197,94,0.35)",
-      borderRadius: 18,
-      padding: 16,
-      boxShadow: "0 14px 30px rgba(0,0,0,0.25)"
+      background: "linear-gradient(135deg, rgba(6,78,59,0.50), rgba(30,41,59,0.86))",
+      border: "1px solid rgba(34,197,94,0.32)",
+      borderRadius: 22,
+      padding: 18,
+      boxShadow: "0 18px 36px rgba(0,0,0,0.26)",
+      backdropFilter: "blur(10px)"
+    },
+    divisorPremium: {
+      height: 1,
+      background: "linear-gradient(90deg, transparent, rgba(196,181,253,0.42), transparent)",
+      margin: "12px 0 18px"
     }
   };
 
@@ -2634,7 +2647,7 @@ const horaFimFinal =
 
   return (
     <div style={estilos.pagina}>
-      <h1 style={estilos.titulo}>JP Eventos Premium v22</h1>
+      <h1 style={estilos.titulo}>JP Eventos Pro</h1>
       <p style={estilos.subtitulo}>Home limpa, financeiro com gráfico, configurações separadas e tudo da v20 mantido.</p>
 
       <input
