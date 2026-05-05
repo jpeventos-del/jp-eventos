@@ -1,6 +1,34 @@
 const supabaseUrl = "https://cgzbrkbobftmlbbuenyl.supabase.co";
 const supabaseKey = "sb_publishable_5CPJ9eL2Wqdp0IXmYQbXTQ_DxUVNfRZ";
 
+const TIMEOUT = 8000;
+
+async function fetchComTimeout(url, options) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), TIMEOUT);
+
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(id);
+    return res;
+  } catch (err) {
+    clearTimeout(id);
+    throw err;
+  }
+}
+
+async function fetchComRetry(url, options, tentativas = 2) {
+  try {
+    return await fetchComTimeout(url, options);
+  } catch (err) {
+    if (tentativas <= 0) throw err;
+    return fetchComRetry(url, options, tentativas - 1);
+  }
+}
+
 function criarQuery(tabela) {
   const estado = {
     tabela,
@@ -28,33 +56,45 @@ function criarQuery(tabela) {
 
     if (params.length) url += `?${params.join("&")}`;
 
-    const resposta = await fetch(url, {
-      method: estado.metodo,
-      headers: {
-        apikey: supabaseKey,
-        Authorization: `Bearer ${supabaseKey}`,
-        "Content-Type": "application/json",
-        Prefer: estado.upsert
-          ? "resolution=merge-duplicates,return=representation"
-          : "return=representation"
-      },
-      body: estado.corpo ? JSON.stringify(estado.corpo) : null
-    });
-
-    const texto = await resposta.text();
-    let data = null;
-
     try {
-      data = texto ? JSON.parse(texto) : null;
-    } catch {
-      data = texto;
+      const resposta = await fetchComRetry(url, {
+        method: estado.metodo,
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+          "Content-Type": "application/json",
+          Prefer: estado.upsert
+            ? "resolution=merge-duplicates,return=representation"
+            : "return=representation"
+        },
+        body: estado.corpo ? JSON.stringify(estado.corpo) : null
+      });
+
+      const texto = await resposta.text();
+      let data = null;
+
+      try {
+        data = texto ? JSON.parse(texto) : null;
+      } catch {
+        data = texto;
+      }
+
+      if (!resposta.ok) {
+        console.error("Supabase erro:", data);
+        return { data: null, error: data };
+      }
+
+      if (estado.unico && Array.isArray(data)) data = data[0] || null;
+
+      return { data, error: null };
+    } catch (err) {
+      console.error("Erro de conexão:", err);
+
+      return {
+        data: null,
+        error: "Falha de conexão com o servidor"
+      };
     }
-
-    if (!resposta.ok) return { data: null, error: data };
-
-    if (estado.unico && Array.isArray(data)) data = data[0] || null;
-
-    return { data, error: null };
   };
 
   const builder = {
