@@ -150,19 +150,26 @@ export default function App() {
   };
 
   const abrirWhatsAppProposta = (evento = form) => {
-    const numero = evento.whatsapp;
+    const numero = String(evento.whatsapp || "").replace(/\D/g, "");
     if (!numero) {
       alert("Informe o WhatsApp do cliente primeiro.");
       return;
     }
 
-    let numeroLimpo = String(numero).replace(/\D/g, "");
-    if (!numeroLimpo.startsWith("55")) numeroLimpo = `55${numeroLimpo}`;
-    window.open(`https://wa.me/${numeroLimpo}?text=${encodeURIComponent(mensagemComPreco(evento))}`, "_blank");
+    setWhatsAppEditor({
+      evento,
+      titulo: "Proposta editável para WhatsApp",
+      numero,
+      mensagem: mensagemComPreco(evento),
+      acaoHistorico: "Proposta WhatsApp aberta",
+      detalheHistorico: `${pegarPacoteFinal(evento) || "Pacote não informado"} - ${moeda(Number(evento.valor || 0))}`
+    });
   };
 
   const [form, setForm] = useState(formInicial);
   const [textoWhatsApp, setTextoWhatsApp] = useState("");
+  const [whatsAppEditor, setWhatsAppEditor] = useState(null);
+  const [metaMensal, setMetaMensal] = useState(() => localStorage.getItem("metaMensalJPEventos") || "10000");
   const [pwaInstallPrompt, setPwaInstallPrompt] = useState(null);
   const [appInstalavel, setAppInstalavel] = useState(false);
   const [bancoStatus, setBancoStatus] = useState("Conectando ao banco online...");
@@ -300,6 +307,10 @@ export default function App() {
     localStorage.setItem("eventos", JSON.stringify(eventos));
     sincronizarEventosNoBanco(eventos);
   }, [eventos]);
+
+  useEffect(() => {
+    localStorage.setItem("metaMensalJPEventos", String(metaMensal || ""));
+  }, [metaMensal]);
 
   useEffect(() => {
     const atualizarLargura = () => setLarguraTela(window.innerWidth);
@@ -1350,7 +1361,7 @@ const horaFimFinal =
   const exportarBackup = () => {
     const dados = {
       sistema: "JP Eventos",
-      versao: "18.0 profissional",
+      versao: "19.0 premium",
       dataBackup: new Date().toLocaleString("pt-BR"),
       eventos
     };
@@ -1562,11 +1573,65 @@ const horaFimFinal =
   };
 
   const abrirWhatsAppComMensagem = (evento, mensagem, titulo, acaoHistorico, detalheHistorico = "") => {
-    const numeroFinal = pedirNumeroWhatsApp(evento, titulo);
-    if (!numeroFinal) return;
+    const numeroInicial = String(evento?.whatsapp || "").replace(/\D/g, "");
+    setWhatsAppEditor({
+      evento,
+      titulo: titulo || "Enviar WhatsApp",
+      numero: numeroInicial,
+      mensagem: mensagem || "",
+      acaoHistorico,
+      detalheHistorico
+    });
+  };
 
-    if (acaoHistorico) registrarHistoricoEvento(evento, acaoHistorico, detalheHistorico);
-    window.open(`https://wa.me/${numeroFinal}?text=${encodeURIComponent(mensagem)}`, "_blank");
+  const abrirWhatsAppPersonalizado = (evento) => {
+    const mensagem = [
+      `Olá, ${evento?.nome || "tudo bem"}! 😊`,
+      "",
+      "Estou passando por aqui para falar sobre seu evento.",
+      evento?.data ? `📅 Data: ${dataCurtaBR(evento.data)}` : "",
+      evento?.tipoEvento ? `🎉 Evento: ${evento.tipoEvento}` : "",
+      "",
+      "Pode me confirmar se está tudo certo por aí?"
+    ].filter(Boolean).join("\n");
+
+    abrirWhatsAppComMensagem(evento, mensagem, "Mensagem personalizada", "Mensagem personalizada aberta", "Cliente recebeu mensagem editável");
+  };
+
+  const numeroWhatsAppFinal = (numero) => {
+    let numeroLimpo = String(numero || "").replace(/\D/g, "");
+    if (!numeroLimpo) return "";
+    if (!numeroLimpo.startsWith("55")) numeroLimpo = `55${numeroLimpo}`;
+    return numeroLimpo;
+  };
+
+  const copiarMensagemEditada = async () => {
+    if (!whatsAppEditor?.mensagem?.trim()) {
+      alert("Digite uma mensagem antes de copiar.");
+      return;
+    }
+    await navigator.clipboard.writeText(whatsAppEditor.mensagem);
+    alert("Mensagem copiada! Você pode colar no WhatsApp.");
+  };
+
+  const enviarMensagemEditada = () => {
+    if (!whatsAppEditor) return;
+    const numeroFinal = numeroWhatsAppFinal(whatsAppEditor.numero);
+    if (!numeroFinal) {
+      alert("Informe o WhatsApp do cliente com DDD.");
+      return;
+    }
+    if (!String(whatsAppEditor.mensagem || "").trim()) {
+      alert("A mensagem está vazia. Escreva algo antes de enviar.");
+      return;
+    }
+
+    if (whatsAppEditor.acaoHistorico) {
+      registrarHistoricoEvento(whatsAppEditor.evento, whatsAppEditor.acaoHistorico, whatsAppEditor.detalheHistorico || "Mensagem editada/enviada pelo WhatsApp");
+    }
+
+    window.open(`https://wa.me/${numeroFinal}?text=${encodeURIComponent(whatsAppEditor.mensagem)}`, "_blank");
+    setWhatsAppEditor(null);
   };
 
   const abrirWhatsAppCobrarSinal = (evento) => {
@@ -2250,6 +2315,13 @@ const horaFimFinal =
   const totalPropostas = eventos.filter((e) => ehPreCadastro(e)).length;
   const totalFechados = eventos.filter((e) => reservaConfirmada(e)).length;
   const taxaConversao = eventos.length > 0 ? Math.round((totalFechados / eventos.length) * 100) : 0;
+  const metaMensalNumero = Number(metaMensal || 0);
+  const percentualMetaMensal = metaMensalNumero > 0 ? Math.min(100, Math.round((faturamentoMesAgenda / metaMensalNumero) * 100)) : 0;
+  const margemLucroTotal = faturamentoTotal > 0 ? Math.round((lucroTotal / faturamentoTotal) * 100) : 0;
+  const margemLucroMes = faturamentoMesAgenda > 0 ? Math.round((lucroMesEstimado / faturamentoMesAgenda) * 100) : 0;
+  const caixaRealRecebido = totalRecebido + eventos.filter((e) => !e.quitado).reduce((acc, e) => acc + Number(e.entrada || 0), 0);
+  const lucroRealEstimado = caixaRealRecebido - custoTotal;
+  const eventosComLucroRuim = eventos.filter((e) => Number(e.valor || 0) > 0 && Number(e.custo || 0) > Number(e.valor || 0) * 0.55);
 
   const rankingClientes = Object.values(
     eventos.reduce((acc, e) => {
@@ -2413,6 +2485,7 @@ const horaFimFinal =
           <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppLembrarPagamento(e)}>Lembrar pagamento</button>
           <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppConfirmarEvento(e)}>Confirmar evento</button>
           <button style={estilos.botaoRoxo} onClick={() => abrirWhatsAppProposta(e)}>Enviar proposta</button>
+          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppPersonalizado(e)}>Mensagem livre</button>
           <button style={estilos.botaoPequeno} onClick={() => { navigator.clipboard.writeText(mensagemComPreco(e)); alert("Mensagem profissional copiada!"); }}>Copiar proposta</button>
         </div>
 
@@ -2435,8 +2508,8 @@ const horaFimFinal =
 
   return (
     <div style={estilos.pagina}>
-      <h1 style={estilos.titulo}>JP Eventos Pro v18</h1>
-      <p style={estilos.subtitulo}>Sistema profissional de agenda, propostas, contratos, recibos, WhatsApp e financeiro</p>
+      <h1 style={estilos.titulo}>JP Eventos Premium v19</h1>
+      <p style={estilos.subtitulo}>Sistema premium de atendimento, agenda, contratos, WhatsApp, financeiro e lucro</p>
 
       <div style={{ ...estilos.card, borderColor: bancoStatus.startsWith("Online") ? "#22c55e" : bancoStatus.startsWith("Erro") ? "#ef4444" : "#6c2bd9", padding: 10 }}>
         <strong>☁️ Banco online:</strong> {bancoStatus}
@@ -3035,7 +3108,26 @@ const horaFimFinal =
 
       {aba === "financeiro" && (
         <>
-          <h2>Caixa Financeiro</h2>
+          <h2>Caixa Financeiro Premium</h2>
+
+          <div style={{ ...estilos.card, borderColor: "#22c55e", background: "linear-gradient(135deg, rgba(6,78,59,0.55), rgba(17,24,39,0.96))" }}>
+            <h3>🎯 Meta do mês</h3>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "220px 1fr", gap: 12, alignItems: "center" }}>
+              <input
+                style={{ ...estilos.input, marginBottom: 0 }}
+                placeholder="Meta mensal. Ex: 10000"
+                value={metaMensal}
+                onChange={(e) => setMetaMensal(e.target.value)}
+              />
+              <div>
+                <strong>{moeda(faturamentoMesAgenda)} de {moeda(metaMensalNumero)}</strong>
+                <div style={{ width: "100%", height: 18, background: "rgba(255,255,255,0.12)", borderRadius: 999, overflow: "hidden", marginTop: 8 }}>
+                  <div style={{ width: `${percentualMetaMensal}%`, height: "100%", background: "linear-gradient(90deg, #22c55e, #a3e635)", borderRadius: 999 }} />
+                </div>
+                <small style={{ color: "#bbf7d0" }}>{percentualMetaMensal}% da meta | Lucro do mês: {moeda(lucroMesEstimado)} ({margemLucroMes}%)</small>
+              </div>
+            </div>
+          </div>
 
           <div style={estilos.gridResumo}>
             <div style={estilos.cardResumo}><strong>💰 Hoje</strong><h2>{moeda(saldoHoje)}</h2></div>
@@ -3050,15 +3142,33 @@ const horaFimFinal =
             <div style={estilos.cardResumo}><strong>📆 Faturamento futuro</strong><h2>{moeda(faturamentoFuturo)}</h2></div>
             <div style={estilos.cardResumo}><strong>⏳ A receber futuro</strong><h2>{moeda(saldoReceberFuturo)}</h2></div>
             <div style={estilos.cardResumo}><strong>🎯 Ticket médio</strong><h2>{moeda(ticketMedio)}</h2></div>
+            <div style={estilos.cardResumo}><strong>🏦 Caixa real recebido</strong><h2>{moeda(caixaRealRecebido)}</h2></div>
+            <div style={estilos.cardResumo}><strong>💎 Lucro real estimado</strong><h2>{moeda(lucroRealEstimado)}</h2></div>
+            <div style={estilos.cardResumo}><strong>📊 Margem geral</strong><h2>{margemLucroTotal}%</h2></div>
+            <div style={estilos.cardResumo}><strong>🔁 Conversão</strong><h2>{taxaConversao}%</h2></div>
           </div>
 
           <div style={{ ...estilos.card, borderColor: "#22c55e" }}>
             <h3>🏦 Painel financeiro automático</h3>
             <p><strong>Faturamento previsto do mês:</strong> {moeda(faturamentoMesAgenda)}</p>
-            <p><strong>Lucro estimado do mês:</strong> {moeda(lucroMesEstimado)}</p>
+            <p><strong>Saídas/custos do mês:</strong> {moeda(custosMesAgenda)}</p>
+            <p><strong>Lucro estimado do mês:</strong> {moeda(lucroMesEstimado)} ({margemLucroMes}%)</p>
             <p><strong>Saldo a receber em eventos futuros:</strong> {moeda(saldoReceberFuturo)}</p>
             <p><strong>Sinais/entradas lançados:</strong> {moeda(sinaisRecebidos)}</p>
+            <p><strong>Propostas:</strong> {totalPropostas} | <strong>Fechados:</strong> {totalFechados} | <strong>Taxa de fechamento:</strong> {taxaConversao}%</p>
           </div>
+
+          {eventosComLucroRuim.length > 0 && (
+            <div style={{ ...estilos.card, borderColor: "#f59e0b", background: "rgba(58,46,0,0.35)" }}>
+              <h3>⚠️ Atenção no lucro</h3>
+              <p>Eventos com custo alto em relação ao valor total. Vale revisar preço, transporte, ajudante ou aluguel.</p>
+              {eventosComLucroRuim.slice(0, 5).map((e) => (
+                <button key={e.id} style={{ ...estilos.botao, display: "block", width: "100%", textAlign: "left" }} onClick={() => abrirEventoRapido(e)}>
+                  {e.nome} - valor {moeda(e.valor)} | custo {moeda(e.custo || 0)} | lucro {moeda(Number(e.valor || 0) - Number(e.custo || 0))}
+                </button>
+              ))}
+            </div>
+          )}
 
           <div style={estilos.card}>
             <h3>📊 Gráfico financeiro</h3>
@@ -3101,6 +3211,37 @@ const horaFimFinal =
             ))}
           </div>
         </>
+      )}
+
+      {whatsAppEditor && (
+        <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.78)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 12, boxSizing: "border-box" }}>
+          <div style={{ ...estilos.card, width: "min(760px, 100%)", maxHeight: "92vh", overflow: "auto", borderColor: "#22c55e" }}>
+            <h2 style={{ marginTop: 0 }}>💬 {whatsAppEditor.titulo}</h2>
+            <p style={{ color: "#bbf7d0", marginTop: -6 }}>Você tem controle total: pode editar, apagar, trocar o número, copiar ou enviar.</p>
+
+            <label style={{ fontWeight: "bold" }}>WHATSAPP DO CLIENTE:</label>
+            <input
+              style={estilos.input}
+              placeholder="DDD + número. Ex: 85999999999"
+              value={whatsAppEditor.numero || ""}
+              onChange={(e) => setWhatsAppEditor({ ...whatsAppEditor, numero: e.target.value })}
+            />
+
+            <label style={{ fontWeight: "bold" }}>MENSAGEM QUE SERÁ ENVIADA:</label>
+            <textarea
+              style={{ ...estilos.textarea, minHeight: 260 }}
+              value={whatsAppEditor.mensagem || ""}
+              onChange={(e) => setWhatsAppEditor({ ...whatsAppEditor, mensagem: e.target.value })}
+            />
+
+            <div style={estilos.grupoAcoes}>
+              <button style={estilos.botaoRoxo} onClick={enviarMensagemEditada}>Enviar no WhatsApp</button>
+              <button style={estilos.botao} onClick={copiarMensagemEditada}>Copiar mensagem</button>
+              <button style={estilos.botaoPequeno} onClick={() => setWhatsAppEditor({ ...whatsAppEditor, mensagem: "" })}>Apagar texto</button>
+              <button style={estilos.botaoPequeno} onClick={() => setWhatsAppEditor(null)}>Cancelar</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {reciboAberto && (
