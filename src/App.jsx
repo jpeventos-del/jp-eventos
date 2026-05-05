@@ -16,6 +16,7 @@ export default function App() {
   const [editandoId, setEditandoId] = useState(null);
   const [busca, setBusca] = useState("");
   const [aba, setAba] = useState("");
+  const [voltarCadastroPendente, setVoltarCadastroPendente] = useState(false);
   const [menuAberto, setMenuAberto] = useState(false);
   const [reciboAberto, setReciboAberto] = useState(null);
   const [tipoRecibo, setTipoRecibo] = useState("sinal");
@@ -166,8 +167,15 @@ export default function App() {
     });
   };
 
-  const [form, setForm] = useState(formInicial);
-  const [textoWhatsApp, setTextoWhatsApp] = useState("");
+  const [form, setForm] = useState(() => {
+    try {
+      const rascunho = localStorage.getItem("rascunhoFormJPEventos");
+      return rascunho ? { ...formInicial, ...JSON.parse(rascunho) } : formInicial;
+    } catch {
+      return formInicial;
+    }
+  });
+  const [textoWhatsApp, setTextoWhatsApp] = useState(() => localStorage.getItem("rascunhoWhatsAppJPEventos") || "");
   const [whatsAppEditor, setWhatsAppEditor] = useState(null);
   const [tomWhatsApp, setTomWhatsApp] = useState(() => localStorage.getItem("tomWhatsAppJPEventos") || "profissional");
   const [metaMensal, setMetaMensal] = useState(() => localStorage.getItem("metaMensalJPEventos") || "10000");
@@ -312,6 +320,14 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("metaMensalJPEventos", String(metaMensal || ""));
   }, [metaMensal]);
+
+  useEffect(() => {
+    localStorage.setItem("rascunhoFormJPEventos", JSON.stringify(form));
+  }, [form]);
+
+  useEffect(() => {
+    localStorage.setItem("rascunhoWhatsAppJPEventos", textoWhatsApp || "");
+  }, [textoWhatsApp]);
 
   useEffect(() => {
     const atualizarLargura = () => setLarguraTela(window.innerWidth);
@@ -801,7 +817,7 @@ Com essas informações eu confiro a agenda e te envio a melhor opção com valo
 
     // Prioriza frases claras de duração, como "1 hora", "3 horas" ou "total de 3 horas".
     // Não deixa a frase seguinte "Começa às 10 horas" confundir a duração.
-    const duracaoClara = t.match(/(?:duracao|duração|total de|por|sao|são)?\s*(\d{1,2})\s*(hora|horas|hrs|h)\b/i);
+    const duracaoClara = t.match(/(?:duracao|duração|total de|por|sao|são)?\s*(\d{1,2})\s*(hora|horas|hrs|hs|h)\b/i);
 
     if (duracaoClara) {
       const qtd = Number(duracaoClara[1]);
@@ -933,7 +949,18 @@ Com essas informações eu confiro a agenda e te envio a melhor opção com valo
       return;
     }
 
-    const textoOriginal = textoWhatsApp;
+    const textoOriginalBruto = textoWhatsApp;
+    const prepararTextoWhatsApp = (valor) => {
+      let preparado = String(valor || "")
+        .replace(/\r/g, "\n")
+        .replace(/\s+(Nome completo|CPF\s*ou\s*cnpj|CPF\/CNPJ|Pra quando vai ser\s*\?|Onde será\s*\?|Onde sera\s*\?|Endereço do local do evento\s*\?|Endereco do local do evento\s*\?|cidade\s*\/\s*bairro\s*\?|Quantas horas\s*\?|Vai começar que horas\s*\?|Vai comecar que horas\s*\?|Será em buffet, casa ou local externo\s*\?|Sera em buffet, casa ou local externo\s*\?|E qual é o tipo de evento|E qual e o tipo de evento)\b/gi, "\n$1")
+        .replace(/\n\s*\n+/g, "\n")
+        .trim();
+
+      return preparado;
+    };
+
+    const textoOriginal = prepararTextoWhatsApp(textoOriginalBruto);
     const textoLimpo = limparConversaWhatsApp(textoOriginal);
     // Para extrair campos com rótulos do WhatsApp (ex: "Nome completo:", "Pra quando vai ser:"),
     // usamos o texto original. O texto limpo continua servindo como apoio para detectar informações soltas.
@@ -949,15 +976,39 @@ ${textoLimpo || ""}`;
     const valorPorRotulo = (rotulos) => {
       const listaRotulos = Array.isArray(rotulos) ? rotulos : [rotulos];
 
-      for (const linha of linhasOriginais) {
-        const normal = normalizarTexto(linha).replace(/\s+/g, " ").trim();
+      for (let i = 0; i < linhasOriginais.length; i += 1) {
+        const linha = linhasOriginais[i];
+        const normal = normalizarTexto(linha).replace(/\s+/g, " ").replace(/[?]/g, "").trim();
 
         for (const rotulo of listaRotulos) {
-          const rotuloNormal = normalizarTexto(rotulo).replace(/\s+/g, " ").trim();
-          if (normal.startsWith(rotuloNormal)) {
+          const rotuloNormal = normalizarTexto(rotulo).replace(/\s+/g, " ").replace(/[?]/g, "").trim();
+
+          if (normal === rotuloNormal || normal.startsWith(rotuloNormal + " ") || normal.startsWith(rotuloNormal)) {
             const doisPontos = linha.indexOf(":");
-            if (doisPontos >= 0) return linha.slice(doisPontos + 1).trim();
-            return linha.slice(rotulo.length).replace(/^[-–—\s]+/, "").trim();
+
+            if (doisPontos >= 0) {
+              const depois = linha.slice(doisPontos + 1).trim();
+              if (depois) return depois;
+            }
+
+            let restoLinha = linha
+              .replace(new RegExp("^\\s*" + rotulo.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&") + "\\s*[:?\\-–—]*\\s*", "i"), "")
+              .trim();
+
+            const restoNormal = normalizarTexto(restoLinha).replace(/[?]/g, "").trim();
+
+            const restoEhApenasComplementoDoRotulo =
+              !restoNormal ||
+              restoNormal === "ou cnpj" ||
+              restoNormal === "ou cpf" ||
+              restoNormal === "cpf" ||
+              restoNormal === "cnpj" ||
+              restoNormal === "documento";
+
+            if (!restoEhApenasComplementoDoRotulo) return restoLinha;
+
+            const proximaLinha = linhasOriginais[i + 1]?.trim();
+            if (proximaLinha) return proximaLinha;
           }
         }
       }
@@ -1048,7 +1099,7 @@ ${textoLimpo || ""}`;
     };
 
     const acharCpfOuCnpj = () => {
-      const porRotulo = valorPorRotulo(["cpf/cnpj", "cpf", "cnpj", "documento"]);
+      const porRotulo = valorPorRotulo(["cpf ou cnpj", "cpf/cnpj", "cpf", "cnpj", "documento"]);
       const documentoRotulo = formatarCpfOuCnpj(porRotulo);
       if (documentoRotulo) return documentoRotulo;
 
@@ -1114,10 +1165,163 @@ ${textoLimpo || ""}`;
     };
 
     let dataExtraida = pegarDataInteligente();
+    const pegarDadosTextoLivreV23 = () => {
+      const linhas = linhasTexto.map((l) => String(l || "").trim()).filter(Boolean);
+
+      const parecePerguntaOuSistema = (linha) => {
+        const l = normalizarTexto(linha);
+        return (
+          l.includes("nome completo") ||
+          l.includes("cpf") ||
+          l.includes("cnpj") ||
+          l.includes("pra quando") ||
+          l.includes("onde sera") ||
+          l.includes("onde será") ||
+          l.includes("endereco do local") ||
+          l.includes("endereço do local") ||
+          l.includes("cidade") ||
+          l.includes("bairro") ||
+          l.includes("quantas horas") ||
+          l.includes("vai comecar") ||
+          l.includes("vai começar") ||
+          l.includes("sera em buffet") ||
+          l.includes("será em buffet") ||
+          l.includes("tipo de evento") ||
+          l.includes("pagou") ||
+          l.includes("entrada") ||
+          l.includes("restante")
+        );
+      };
+
+      const dataSolta = (() => {
+        const linhaData = linhas.find((linha) => {
+          const l = normalizarTexto(linha);
+          if (l.includes("cpf") || l.includes("cnpj") || l.includes("pagou")) return false;
+          return (
+            /(?:vai\s+ser|dia|data)\s+\d{1,2}\s*[\/.\-\s]\s*\d{1,2}/i.test(linha) ||
+            /^\s*\d{1,2}\s*[\/.\-\s]\s*\d{1,2}(?:\s*[\/.\-\s]\s*\d{2,4})?\s*$/i.test(linha)
+          );
+        });
+
+        if (!linhaData) return "";
+        return normalizarDataTexto(linhaData);
+      })();
+
+      const horaInicioSolta = (() => {
+        let linhaHora = linhas.find((linha) =>
+          /(?:comeca|começa|inicio|início|iniciar|vai começar|vai comecar)\s*(?:as|às)?\s*\d{1,2}\s*(?:h|hs|hora|horas|:00)?/i.test(linha)
+        );
+
+        if (!linhaHora) {
+          linhaHora = linhas.find((linha) =>
+            /^\s*(as|às)?\s*\d{1,2}\s*(h|hs|hora|horas)\s*$/i.test(linha) ||
+            /^\s*\d{1,2}:[0-5]\d\s*$/i.test(linha)
+          );
+        }
+
+        if (!linhaHora) return "";
+
+        const m =
+          linhaHora.match(/(?:comeca|começa|inicio|início|iniciar|vai começar|vai comecar)\s*(?:as|às)?\s*(\d{1,2})(?::([0-5]\d))?\s*(?:h|hs|hora|horas)?/i) ||
+          linhaHora.match(/^\s*(?:as|às)?\s*(\d{1,2})(?::([0-5]\d))?\s*(?:h|hs|hora|horas)?\s*$/i);
+
+        if (!m) return "";
+        const minuto = m[2] || "00";
+        return `${String(Number(m[1])).padStart(2, "0")}:${String(minuto).padStart(2, "0")}`;
+      })();
+
+      const duracaoSolta = (() => {
+        const linhaDuracao = linhas.find((linha) => /^\s*\d{1,2}\s*(h|hs|hrs|hora|horas)\s*$/i.test(linha));
+        if (!linhaDuracao) return null;
+        const qtd = Number((linhaDuracao.match(/\d{1,2}/) || [])[0]);
+        return qtd > 0 && qtd <= 12 ? qtd : null;
+      })();
+
+      const enderecoSolto = (() => {
+        return linhas.find((linha) => {
+          const l = normalizarTexto(linha);
+          return /\b(rua|avenida|av\.?|travessa|tv\.?|alameda|rodovia|estrada)\b/i.test(linha) && !l.includes("endereco do local");
+        }) || "";
+      })();
+
+      const cidadeSolta = (() => {
+        if (!enderecoSolto) return "";
+        const partes = enderecoSolto.trim().split(/\s+/);
+        if (partes.length >= 3) {
+          const ultimo = partes[partes.length - 1];
+          if (!/\d/.test(ultimo) && ultimo.length >= 3) return ultimo;
+        }
+        return "";
+      })();
+
+      const nomeSolto = (() => {
+        for (let i = linhas.length - 1; i >= 0; i -= 1) {
+          const linha = linhas[i];
+          const l = normalizarTexto(linha);
+          const temNumero = /\d/.test(linha);
+
+          if (
+            !temNumero &&
+            linha.split(/\s+/).length >= 2 &&
+            !parecePerguntaOuSistema(linha) &&
+            !l.includes("rua") &&
+            !l.includes("avenida") &&
+            !l.includes("casa") &&
+            !l.includes("loja") &&
+            !l.includes("buffet") &&
+            !l.includes("aniversario") &&
+            !l.includes("aniversário") &&
+            !l.includes("simples") &&
+            !l.includes("pessoas")
+          ) {
+            return linha;
+          }
+        }
+        return "";
+      })();
+
+      const idadeSolta = (() => {
+        const linhaIdade = linhas.find((linha) => /\b\d{1,3}\s*anos\b/i.test(linha));
+        if (!linhaIdade) return "";
+        const m = linhaIdade.match(/\b(\d{1,3})\s*anos\b/i);
+        return m ? Number(m[1]) : "";
+      })();
+
+      const tipoSolto = (() => {
+        const lTudo = normalizarTexto(linhas.join(" "));
+        if (idadeSolta || lTudo.includes("aniversario") || lTudo.includes("aniversário")) {
+          return idadeSolta ? `Aniversário de ${idadeSolta} anos` : "Aniversário";
+        }
+        if (lTudo.includes("palestra")) return "Palestra para clientes";
+        if (lTudo.includes("inauguracao") || lTudo.includes("inauguração")) return "Inauguração";
+        if (lTudo.includes("casamento")) return "Casamento";
+        if (lTudo.includes("formatura")) return "Formatura";
+        if (lTudo.includes("loja")) return "Evento em loja";
+        return "";
+      })();
+
+      return {
+        data: dataSolta,
+        horaInicio: horaInicioSolta,
+        duracao: duracaoSolta,
+        horaFim: horaInicioSolta && duracaoSolta ? somarHorasTexto(horaInicioSolta, duracaoSolta) : "",
+        endereco: enderecoSolto,
+        cidade: cidadeSolta,
+        nome: nomeSolto,
+        idade: idadeSolta,
+        tipoEvento: tipoSolto
+      };
+    };
+
+    const dadosTextoLivreV23 = pegarDadosTextoLivreV23();
+    if (!dataExtraida && dadosTextoLivreV23.data) dataExtraida = dadosTextoLivreV23.data;
 
     let horaInicio = "";
     let horaFim = "";
     let quantidadeHoras = null;
+
+    if (!horaInicio && dadosTextoLivreV23.horaInicio) horaInicio = dadosTextoLivreV23.horaInicio;
+    if (!quantidadeHoras && dadosTextoLivreV23.duracao) quantidadeHoras = dadosTextoLivreV23.duracao;
 
     const horaPorRotulo = valorPorRotulo(["vai começar que horas", "vai comecar que horas", "horário de início", "horario de inicio", "hora início", "hora inicio", "horário", "horario"]);
     if (horaPorRotulo) horaInicio = normalizarHoraTexto(horaPorRotulo, textoApoio);
@@ -1133,8 +1337,13 @@ ${textoLimpo || ""}`;
 
     const faixaHorario = textoHorario.match(/(?:das?\s*)?(\d{1,2})\s*(?:h|:00)?\s*(?:as|ate|-|às|até)\s*(\d{1,2})\s*(?:h|:00)?/i);
     if (faixaHorario) {
+      const trechoFaixa = faixaHorario[0] || "";
       horaInicio = normalizarHora(faixaHorario[1], textoHorario);
-      horaFim = normalizarHora(faixaHorario[2], textoHorario);
+
+      // Evita tratar duração "3h" como hora final quando o texto era "começa as 19h\n3h".
+      if (!/\n/.test(trechoFaixa)) {
+        horaFim = normalizarHora(faixaHorario[2], textoHorario);
+      }
     }
 
     if (!horaInicio) {
@@ -1149,7 +1358,43 @@ if (!horaInicio) {
     horaInicio = normalizarHora(inicioHorario[1], textoHorario);
   }
 }
-    const duracoes = [...textoHorario.matchAll(/(\d{1,2})\s*(hora|horas|hrs|h)\b/gi)];
+    if (!horaInicio) {
+      const linhaComHoraInicio = linhasTexto.find((linha) => {
+        const l = normalizarTexto(linha);
+        return (l.includes("comeca") || l.includes("começa") || l.includes("inicio") || l.includes("início")) && /\d{1,2}\s*h/i.test(linha);
+      });
+      const horaSolta = linhaComHoraInicio?.match(/(\d{1,2})\s*h/i);
+      if (horaSolta) horaInicio = normalizarHora(horaSolta[1], linhaComHoraInicio);
+    }
+    if (!horaInicio) {
+      const horaInicioSolta = textoApoio.match(/(?:comeca|começa|inicio|início|horario|horário|vai começar|vai comecar)\s*(?:as|às)?\s*(\d{1,2})\s*(?:h|hs|:00)?/i);
+      if (horaInicioSolta) horaInicio = normalizarHora(horaInicioSolta[1], textoApoio);
+    }
+
+    const duracaoLinhaSolta = linhasTexto.find((linha) => /^\s*\d{1,2}\s*(h|hs|hrs|hora|horas)\s*$/i.test(linha));
+    if (!quantidadeHoras && duracaoLinhaSolta) {
+      const qtdSolta = Number((duracaoLinhaSolta.match(/\d{1,2}/) || [])[0]);
+      if (qtdSolta > 0 && qtdSolta <= 12) quantidadeHoras = qtdSolta;
+    }
+
+    if (!horaInicio) {
+      const horaInicioLinhaSoltaV235 = linhasTexto.find((linha) => {
+        const l = normalizarTexto(linha).trim();
+
+        // Aceita formatos soltos:
+        // "as 19h", "às 19 h", "19 horas", "19:00", "19h"
+        if (/^\s*(as|às)?\s*\d{1,2}\s*(h|hs|hora|horas)\s*$/i.test(linha)) return true;
+        if (/^\s*\d{1,2}:[0-5]\d\s*$/i.test(linha)) return true;
+
+        return false;
+      });
+
+      if (horaInicioLinhaSoltaV235) {
+        horaInicio = normalizarHoraTexto(horaInicioLinhaSoltaV235, textoApoio);
+      }
+    }
+
+    const duracoes = [...textoHorario.matchAll(/(\d{1,2})\s*(hora|horas|hrs|hs|h)\b/gi)];
     for (const m of duracoes) {
       const qtd = Number(m[1]);
       const antes = textoHorario.slice(Math.max(0, m.index - 30), m.index);
@@ -1174,7 +1419,7 @@ if (!horaInicio) {
       }
     }
 
-    const totalDeHoras = textoHorario.match(/total\s+de\s+(\d{1,2})\s*(hora|horas|hrs|h)/i);
+    const totalDeHoras = textoHorario.match(/total\s+de\s+(\d{1,2})\s*(hora|horas|hrs|hs|h)/i);
     if (!quantidadeHoras && totalDeHoras) {
       const qtd = Number(totalDeHoras[1]);
       if (qtd > 0 && qtd <= 12) quantidadeHoras = qtd;
@@ -1190,7 +1435,7 @@ if (!horaInicio) {
     const idadeMatch = textoApoio.match(/(\d{1,3})\s*(anos|aninhos|idade)/i);
     const idade = idadeRotulo || (idadeMatch ? Number(idadeMatch[1]) : "");
 
-    const tipoEventoRotulo = valorPorRotulo(["tipo de evento", "qual é o tipo de evento", "qual e o tipo de evento", "evento"]);
+    const tipoEventoRotulo = valorPorRotulo(["tipo de evento", "e qual é o tipo de evento", "e qual e o tipo de evento", "qual é o tipo de evento", "qual e o tipo de evento", "evento"]);
     let tipoEvento = "";
     const tipoNormal = normalizarTexto(tipoEventoRotulo);
     if (tipoNormal.includes("aniversario") || tipoNormal.includes("aniversário")) tipoEvento = "Aniversário";
@@ -1201,6 +1446,10 @@ if (!horaInicio) {
     else if (tipoNormal.includes("empresa") || tipoNormal.includes("corporativo")) tipoEvento = "Evento corporativo";
     else if (tipoNormal.includes("batizado")) tipoEvento = "Batizado";
     else if (tipoNormal.includes("loja")) tipoEvento = "Evento em loja";
+
+    if (!tipoEvento && tipoEventoRotulo) {
+      tipoEvento = tipoEventoRotulo.trim();
+    }
 
     if (!tipoEvento) {
       if (t.includes("inauguracao") || t.includes("inauguração")) tipoEvento = "Inauguração";
@@ -1215,7 +1464,7 @@ if (!horaInicio) {
 
     if (tipoEvento === "Aniversário" && idade) tipoEvento = `Aniversário de ${idade} anos`;
 
-    const localEventoRotulo = valorPorRotulo(["será em buffet, casa ou local externo", "sera em buffet, casa ou local externo", "local do evento", "local"]);
+    const localEventoRotulo = valorPorRotulo(["será em buffet, casa ou local externo", "sera em buffet, casa ou local externo", "será em buffet casa ou local externo", "sera em buffet casa ou local externo", "local do evento", "local"]);
     let localEvento = "";
     const localNormal = normalizarTexto(localEventoRotulo);
     if (localNormal.includes("buffet")) localEvento = "Buffet";
@@ -1318,6 +1567,9 @@ if (!horaInicio) {
     const mensagemSugerida = nomeMelhorado
       ? `Olá, ${nomeMelhorado}! Recebi as informações do seu evento para ${dataExtraida ? dataCurtaBR(dataExtraida) : "a data informada"}${horaInicio ? ` às ${horaInicio}` : ""}. Vou conferir o melhor pacote e já te retorno.`
       : "";
+    horaInicio = dadosTextoLivreV23.horaInicio || horaInicio;
+    quantidadeHoras = quantidadeHoras || dadosTextoLivreV23.duracao;
+
 const duracaoForcada = (() => {
   const textoHora = normalizarTexto(texto);
   const achou = textoHora.match(/(\d{1,2})\s*(hora|horas|hrs)\b/i);
@@ -1327,8 +1579,35 @@ const duracaoForcada = (() => {
   return qtd > 0 && qtd <= 12 ? qtd : null;
 })();
 
-const horaFimFinal =
-  horaFim || (horaInicio && (quantidadeHoras || duracaoForcada) ? somarHorasTexto(horaInicio, quantidadeHoras || duracaoForcada) : "");
+const corrigirHoraFimQuandoPegouDuracaoComoHorario = () => {
+  const duracaoFinal = quantidadeHoras || duracaoForcada || dadosTextoLivreV23.duracao;
+
+  if (!horaInicio || !duracaoFinal) return horaFim;
+
+  const inicioNumero = Number(String(horaInicio).split(":")[0]);
+  const fimNumero = Number(String(horaFim || "").split(":")[0]);
+
+  // Exemplo real:
+  // "começa as 19h"
+  // "3h"
+  // Antes o sistema podia entender horaFim como 03:00.
+  // Aqui corrigimos para 19:00 + 3h = 22:00.
+  if (horaFim && inicioNumero >= 12 && fimNumero > 0 && fimNumero <= 12 && fimNumero === Number(duracaoFinal)) {
+    return somarHorasTexto(horaInicio, duracaoFinal);
+  }
+
+  return horaFim || somarHorasTexto(horaInicio, duracaoFinal);
+};
+
+const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
+    const valoresPagos = [...textoApoio.matchAll(/pagou\s*(?:r\$)?\s*([0-9]+(?:[,.][0-9]{1,2})?)/gi)]
+      .map((m) => Number(String(m[1]).replace(",", ".")))
+      .filter((n) => !Number.isNaN(n) && n > 0);
+
+    const entradaExtraida = valoresPagos.length > 0 ? valoresPagos[0] : "";
+    const totalPagoExtraido = valoresPagos.length > 1 ? valoresPagos.reduce((acc, n) => acc + n, 0) : "";
+    const valorExtraido = totalPagoExtraido || "";
+
     const obsExtras = [
       form.obs,
       localEvento ? `Local informado: ${localEvento}` : "",
@@ -1344,19 +1623,19 @@ const horaFimFinal =
 
     setForm({
       ...form,
-      nome: nomeMelhorado || form.nome,
+      nome: nomeMelhorado || dadosTextoLivreV23.nome || form.nome,
       cpf: documentoExtraido || form.cpf,
       whatsapp: telefoneExtraido || form.whatsapp,
-      tipoEvento: tipoEvento || form.tipoEvento,
+      tipoEvento: tipoEvento || dadosTextoLivreV23.tipoEvento || form.tipoEvento,
       data: dataExtraida || form.data,
-      horaInicio: horaInicio || form.horaInicio,
-      horaFim: horaFimFinal || form.horaFim,
-      endereco: endereco || form.endereco,
-      cidade: cidadeFinal,
+      horaInicio: horaInicio || dadosTextoLivreV23.horaInicio || form.horaInicio,
+      horaFim: horaFimFinal || dadosTextoLivreV23.horaFim || form.horaFim,
+      endereco: endereco || dadosTextoLivreV23.endereco || form.endereco,
+      cidade: cidadeFinal || dadosTextoLivreV23.cidade,
       bairro: bairro || form.bairro || "",
       pacote: form.pacote || pacoteSugerido,
-      valor: form.valor || (pacoteInfo(pacoteSugerido)?.valor ? String(pacoteInfo(pacoteSugerido).valor) : form.valor),
-      entrada: campoFoiPreenchido(form.entrada) ? String(form.entrada) : (pacoteInfo(pacoteSugerido)?.entrada ? String(pacoteInfo(pacoteSugerido).entrada) : "0"),
+      valor: campoFoiPreenchido(form.valor) ? String(form.valor) : (valorExtraido ? String(valorExtraido) : (pacoteInfo(pacoteSugerido)?.valor ? String(pacoteInfo(pacoteSugerido).valor) : form.valor)),
+      entrada: campoFoiPreenchido(form.entrada) ? String(form.entrada) : (entradaExtraida ? String(entradaExtraida) : (pacoteInfo(pacoteSugerido)?.entrada ? String(pacoteInfo(pacoteSugerido).entrada) : "0")),
       formaEntrada: form.formaEntrada || (pacoteInfo(pacoteSugerido) ? "Pix" : form.formaEntrada),
       formaPagamento: form.formaPagamento || (pacoteInfo(pacoteSugerido) ? "Entrada / sinal" : form.formaPagamento),
       obs: obsExtras
@@ -1370,12 +1649,25 @@ const horaFimFinal =
   const limpar = () => {
     setForm(formInicial);
     setEditandoId(null);
+    localStorage.removeItem("rascunhoFormJPEventos");
+  };
+
+  const limparSomenteWhatsApp = () => {
+    setTextoWhatsApp("");
+    localStorage.removeItem("rascunhoWhatsAppJPEventos");
+  };
+
+  const limparSomenteCadastro = () => {
+    if (!confirm("Limpar somente os campos do cadastro? A conversa do WhatsApp será mantida.")) return;
+    setForm(formInicial);
+    setEditandoId(null);
+    localStorage.removeItem("rascunhoFormJPEventos");
   };
 
   const exportarBackup = () => {
     const dados = {
       sistema: "JP Eventos",
-      versao: "22.0 premium clean",
+      versao: "23.6 horario flexivel whatsapp",
       dataBackup: new Date().toLocaleString("pt-BR"),
       eventos
     };
@@ -2871,18 +3163,15 @@ const horaFimFinal =
               Extrair dados e preencher cadastro
             </button>
 
-            <button style={estilos.botao} onClick={() => setTextoWhatsApp("")}>
-              Limpar conversa
+            <button style={estilos.botao} onClick={limparSomenteWhatsApp}>
+              Limpar somente conversa do WhatsApp
             </button>
 
             <button
               style={{ ...estilos.botao, background: "#991b1b" }}
-              onClick={() => {
-                setTextoWhatsApp("");
-                limpar();
-              }}
+              onClick={limparSomenteCadastro}
             >
-              Limpar conversa e cadastro
+              Limpar somente cadastro
             </button>
           </div>
 
@@ -2929,6 +3218,19 @@ const horaFimFinal =
         {form.data && eventosNaMesmaData.length > 0 && (
             <div style={{ background: "#3a2e00", color: "yellow", padding: 10, borderRadius: 8, marginBottom: 10, border: "1px solid orange", fontWeight: "bold" }}>
               ⚠️ Já existe(m) {eventosNaMesmaData.length} evento(s) cadastrado(s) nessa data.
+              <br />
+              <button
+                style={estilos.botao}
+                onClick={() => {
+                  localStorage.setItem("rascunhoFormJPEventos", JSON.stringify(form));
+                  localStorage.setItem("rascunhoWhatsAppJPEventos", textoWhatsApp || "");
+                  setBusca(form.data);
+                  setVoltarCadastroPendente(true);
+                  setAba("eventos");
+                }}
+              >
+                Ver evento(s) nessa data
+              </button>
             </div>
           )}
 
@@ -3050,6 +3352,22 @@ const horaFimFinal =
       {aba === "eventos" && (
         <>
           <h2>Eventos</h2>
+          {voltarCadastroPendente && (
+            <div style={{ ...estilos.card, borderColor: "#38bdf8" }}>
+              <strong>Você está vendo os eventos da data pesquisada.</strong>
+              <br />
+              <button
+                style={estilos.botaoRoxo}
+                onClick={() => {
+                  setVoltarCadastroPendente(false);
+                  setAba("cadastro");
+                }}
+              >
+                Voltar ao cadastro em andamento
+              </button>
+            </div>
+          )}
+
 
           <div style={{ marginBottom: 12 }}>
             {[
