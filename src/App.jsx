@@ -169,6 +169,7 @@ export default function App() {
   const [form, setForm] = useState(formInicial);
   const [textoWhatsApp, setTextoWhatsApp] = useState("");
   const [whatsAppEditor, setWhatsAppEditor] = useState(null);
+  const [tomWhatsApp, setTomWhatsApp] = useState(() => localStorage.getItem("tomWhatsAppJPEventos") || "profissional");
   const [metaMensal, setMetaMensal] = useState(() => localStorage.getItem("metaMensalJPEventos") || "10000");
   const [pwaInstallPrompt, setPwaInstallPrompt] = useState(null);
   const [appInstalavel, setAppInstalavel] = useState(false);
@@ -1598,6 +1599,89 @@ const horaFimFinal =
     abrirWhatsAppComMensagem(evento, mensagem, "Mensagem personalizada", "Mensagem personalizada aberta", "Cliente recebeu mensagem editável");
   };
 
+
+  const mensagemPremiumSemIA = (evento, tipo = "followup") => {
+    const total = Number(evento?.valor || 0);
+    const entrada = Number(evento?.entrada || 0);
+    const saldo = Math.max(total - entrada, 0);
+    const pacoteFinal = pegarPacoteFinal(evento) || "pacote combinado";
+    const dataEvento = evento?.data ? dataCurtaBR(evento.data) : "data combinada";
+    const horario = `${normalizarHorarioManual(evento?.horaInicio) || evento?.horaInicio || "horário combinado"}${evento?.horaFim ? ` às ${normalizarHorarioManual(evento.horaFim) || evento.horaFim}` : ""}`;
+    const nome = evento?.nome || "tudo bem";
+    const assinaturaWhats = tomWhatsApp === "curto" ? "" : "\n\nAtenciosamente,\nJean - JP Eventos";
+
+    const modelos = {
+      followup: [
+        `Olá, ${nome}! Tudo bem? 😊`,
+        "",
+        `Estou passando para dar continuidade ao atendimento do seu evento ${evento?.tipoEvento || ""} para ${dataEvento}.`,
+        total > 0 ? `O pacote ${pacoteFinal} ficou no valor total de ${moeda(total)}.` : `O pacote indicado é: ${pacoteFinal}.`,
+        entrada > 0 ? `Para garantir a data na agenda, o sinal fica em ${moeda(entrada)}.` : "Para garantir a data, preciso da confirmação do sinal combinado.",
+        "",
+        "Se estiver tudo certo, posso deixar sua data encaminhada por aqui. 🙌"
+      ],
+      urgente: [
+        `Olá, ${nome}! 😊`,
+        "",
+        `Passando rapidinho porque a data ${dataEvento} ainda está como pré-reserva no sistema.`,
+        "Como trabalho por agenda, a data só fica garantida depois da confirmação do sinal.",
+        entrada > 0 ? `O sinal combinado é de ${moeda(entrada)}.` : "Me confirma por aqui se deseja seguir com a reserva?",
+        "",
+        "Assim eu já deixo tudo organizado para seu evento. 🙌"
+      ],
+      confirmacao: [
+        `Olá, ${nome}! Tudo bem? 😊`,
+        "",
+        "Passando para confirmar os dados do seu evento:",
+        `📅 Data: ${dataEvento}`,
+        `⏰ Horário: ${horario}`,
+        `🎉 Evento: ${evento?.tipoEvento || "a confirmar"}`,
+        `📍 Local: ${evento?.endereco || cidadeBairroFinal(evento) || "a confirmar"}`,
+        "",
+        "Está tudo certo com essas informações? Se precisar ajustar algo, me avisa por aqui. 🙌"
+      ],
+      pagamento: [
+        `Olá, ${nome}! 😊`,
+        "",
+        `Passando para lembrar do financeiro do evento do dia ${dataEvento}.`,
+        `Valor total: ${moeda(total)}`,
+        `Entrada/sinal: ${moeda(entrada)}`,
+        `Saldo pendente: ${moeda(saldo)}`,
+        "",
+        "Quando puder, me confirma a melhor forma de concluir o pagamento. Obrigado! 🙌"
+      ],
+      posEvento: [
+        `Olá, ${nome}! Tudo bem? 😊`,
+        "",
+        "Quero agradecer pela confiança no meu trabalho no seu evento.",
+        "Foi um prazer fazer parte desse momento! 🙌",
+        "",
+        "Se puder, me manda um feedback por aqui. Isso ajuda muito meu trabalho e também os próximos clientes."
+      ],
+      indicacao: [
+        `Olá, ${nome}! 😊`,
+        "",
+        "Fico feliz pela oportunidade de atender seu evento.",
+        "Se você conhecer alguém precisando de DJ, som, iluminação ou telão, pode indicar meu contato. 🙌",
+        "",
+        "Atendo aniversários, casamentos, eventos infantis, inaugurações, confraternizações e eventos corporativos."
+      ]
+    };
+
+    const base = modelos[tipo] || modelos.followup;
+    return base.filter(Boolean).join("\n") + assinaturaWhats;
+  };
+
+  const abrirWhatsAppModelo = (evento, tipo, titulo) => {
+    abrirWhatsAppComMensagem(
+      evento,
+      mensagemPremiumSemIA(evento, tipo),
+      titulo,
+      `Modelo WhatsApp aberto: ${titulo}`,
+      "Mensagem gerada pelo sistema sem IA paga e editável antes do envio"
+    );
+  };
+
   const numeroWhatsAppFinal = (numero) => {
     let numeroLimpo = String(numero || "").replace(/\D/g, "");
     if (!numeroLimpo) return "";
@@ -2486,6 +2570,10 @@ const horaFimFinal =
           <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppConfirmarEvento(e)}>Confirmar evento</button>
           <button style={estilos.botaoRoxo} onClick={() => abrirWhatsAppProposta(e)}>Enviar proposta</button>
           <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppPersonalizado(e)}>Mensagem livre</button>
+          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppModelo(e, "followup", "Follow-up inteligente")}>Follow-up</button>
+          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppModelo(e, "urgente", "Última chamada da data")}>Última chamada</button>
+          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppModelo(e, "posEvento", "Pós-evento / feedback")}>Pós-evento</button>
+          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppModelo(e, "indicacao", "Pedido de indicação")}>Indicação</button>
           <button style={estilos.botaoPequeno} onClick={() => { navigator.clipboard.writeText(mensagemComPreco(e)); alert("Mensagem profissional copiada!"); }}>Copiar proposta</button>
         </div>
 
@@ -2508,11 +2596,15 @@ const horaFimFinal =
 
   return (
     <div style={estilos.pagina}>
-      <h1 style={estilos.titulo}>JP Eventos Premium v19</h1>
-      <p style={estilos.subtitulo}>Sistema premium de atendimento, agenda, contratos, WhatsApp, financeiro e lucro</p>
+      <h1 style={estilos.titulo}>JP Eventos Premium v20</h1>
+      <p style={estilos.subtitulo}>Sistema premium sem mensalidade: atendimento editável, agenda, contratos, WhatsApp, financeiro e lucro</p>
 
       <div style={{ ...estilos.card, borderColor: bancoStatus.startsWith("Online") ? "#22c55e" : bancoStatus.startsWith("Erro") ? "#ef4444" : "#6c2bd9", padding: 10 }}>
         <strong>☁️ Banco online:</strong> {bancoStatus}
+      </div>
+
+      <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20,83,45,0.18)", padding: 10 }}>
+        <strong>✅ V20 sem mensalidade:</strong> mensagens inteligentes por modelo interno, WhatsApp editável, financeiro com entrada + saída + lucro e nenhum serviço pago obrigatório.
       </div>
 
       <input
@@ -3090,6 +3182,17 @@ const horaFimFinal =
           </div>
 
           <div style={estilos.card}>
+            <h3>🤖 Atendimento inteligente sem pagar API</h3>
+            <p>Esta versão não usa robô pago, API externa nem mensalidade. Ela monta mensagens profissionais por modelos internos e você sempre revisa antes de enviar.</p>
+            <label style={{ fontWeight: "bold" }}>Tom padrão das mensagens:</label>
+            <select style={estilos.input} value={tomWhatsApp} onChange={(e) => setTomWhatsApp(e.target.value)}>
+              <option value="profissional">Profissional completo</option>
+              <option value="curto">Curto e direto</option>
+            </select>
+            <p style={{ color: "#bbf7d0" }}>Controle total: editar, apagar, copiar ou enviar só quando quiser.</p>
+          </div>
+
+          <div style={estilos.card}>
             <h3>📱 Modo celular / instalação</h3>
             <p>O sistema ajusta botões, cards e campos automaticamente para celular.</p>
             <p><strong>Tamanho detectado:</strong> {larguraTela}px</p>
@@ -3226,6 +3329,15 @@ const horaFimFinal =
               value={whatsAppEditor.numero || ""}
               onChange={(e) => setWhatsAppEditor({ ...whatsAppEditor, numero: e.target.value })}
             />
+
+            <label style={{ fontWeight: "bold" }}>MODELOS RÁPIDOS SEM MENSALIDADE:</label>
+            <div style={{ ...estilos.grupoAcoes, marginBottom: 12 }}>
+              <button style={estilos.botaoPequeno} onClick={() => setWhatsAppEditor({ ...whatsAppEditor, mensagem: mensagemPremiumSemIA(whatsAppEditor.evento, "followup") })}>Follow-up</button>
+              <button style={estilos.botaoPequeno} onClick={() => setWhatsAppEditor({ ...whatsAppEditor, mensagem: mensagemPremiumSemIA(whatsAppEditor.evento, "confirmacao") })}>Confirmar dados</button>
+              <button style={estilos.botaoPequeno} onClick={() => setWhatsAppEditor({ ...whatsAppEditor, mensagem: mensagemPremiumSemIA(whatsAppEditor.evento, "pagamento") })}>Pagamento</button>
+              <button style={estilos.botaoPequeno} onClick={() => setWhatsAppEditor({ ...whatsAppEditor, mensagem: mensagemPremiumSemIA(whatsAppEditor.evento, "posEvento") })}>Pós-evento</button>
+              <button style={estilos.botaoPequeno} onClick={() => setWhatsAppEditor({ ...whatsAppEditor, mensagem: mensagemPremiumSemIA(whatsAppEditor.evento, "indicacao") })}>Indicação</button>
+            </div>
 
             <label style={{ fontWeight: "bold" }}>MENSAGEM QUE SERÁ ENVIADA:</label>
             <textarea
