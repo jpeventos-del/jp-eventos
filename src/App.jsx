@@ -2499,29 +2499,52 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       y += 13;
     };
 
-    const campo = (rotulo, valor) => {
-      const conteudo = `${rotulo}: ${valor || "Não informado"}`;
-      const linhas = doc.splitTextToSize(conteudo, larguraConteudo - 6);
-      garantirEspaco(linhas.length * 6 + 3);
+    const campo = (rotulo, valor, opcoesCampo = {}) => {
+      const valorFinal = valor || "Não informado";
+      const xValor = margem + 58;
+      const larguraValor = larguraConteudo - 62;
+      const linhasValor = doc.splitTextToSize(String(valorFinal), larguraValor);
+      garantirEspaco(linhasValor.length * 6 + 3);
+
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
-      const primeiraLinha = linhas[0] || "";
-      const posDoisPontos = primeiraLinha.indexOf(":");
+      doc.setTextColor(0, 0, 0);
+      texto(`${rotulo}:`, margem, y);
 
-      if (posDoisPontos >= 0) {
-        texto(primeiraLinha.slice(0, posDoisPontos + 1), margem, y);
-        doc.setFont("helvetica", "normal");
-        texto(primeiraLinha.slice(posDoisPontos + 1).trim(), margem + 58, y);
+      if (opcoesCampo.azul) {
+        doc.setTextColor(37, 99, 235);
+        doc.setFont("helvetica", "bold");
       } else {
-        texto(primeiraLinha, margem, y);
+        doc.setTextColor(0, 0, 0);
+        doc.setFont("helvetica", "normal");
       }
 
-      doc.setFont("helvetica", "normal");
-      for (let i = 1; i < linhas.length; i += 1) {
+      texto(linhasValor[0] || "", xValor, y);
+      for (let i = 1; i < linhasValor.length; i += 1) {
         y += 6;
-        texto(linhas[i], margem + 58, y);
+        texto(linhasValor[i], xValor, y);
       }
+
+      doc.setTextColor(0, 0, 0);
+      doc.setFont("helvetica", "normal");
       y += 7;
+    };
+
+    const cardFinanceiro = (rotulo, valor, corRgb, x, largura = 56) => {
+      doc.setFillColor(250, 250, 252);
+      doc.setDrawColor(230, 230, 240);
+      doc.roundedRect(x, y, largura, 24, 3, 3, "FD");
+
+      doc.setTextColor(90, 90, 100);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      texto(rotulo, x + 4, y + 7);
+
+      doc.setTextColor(corRgb[0], corRgb[1], corRgb[2]);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      texto(valor, x + 4, y + 17);
+      doc.setTextColor(0, 0, 0);
     };
 
     const paragrafo = (conteudo) => {
@@ -2562,21 +2585,33 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     campo("WhatsApp", e.whatsapp);
 
     secao("DADOS DO EVENTO");
-    campo("Tipo do evento", e.tipoEvento);
-    campo("Data do evento", dataBR(e.data));
-    campo("Horário", `${normalizarHorarioManual(e.horaInicio) || e.horaInicio || "Não informado"} às ${normalizarHorarioManual(e.horaFim) || e.horaFim || "Não informado"}`);
-    campo("Duração", calcularDuracao(e.horaInicio, e.horaFim));
-    campo("Endereço", e.endereco || "Não informado");
-    campo("Cidade / bairro", cidadeBairroFinal(e));
-    campo(ehProposta ? "Pacote proposto" : "Pacote contratado", pacoteFinal);
+    campo("Tipo do evento", e.tipoEvento, { azul: !ehProposta });
+    campo("Data do evento", dataBR(e.data), { azul: !ehProposta });
+    campo("Horário", `${normalizarHorarioManual(e.horaInicio) || e.horaInicio || "Não informado"} às ${normalizarHorarioManual(e.horaFim) || e.horaFim || "Não informado"}`, { azul: !ehProposta });
+    campo("Duração", calcularDuracao(e.horaInicio, e.horaFim), { azul: !ehProposta });
+    campo("Endereço", e.endereco || "Não informado", { azul: !ehProposta });
+    campo("Cidade / bairro", cidadeBairroFinal(e), { azul: !ehProposta });
+    campo(ehProposta ? "Pacote proposto" : "Pacote contratado", pacoteFinal, { azul: !ehProposta });
 
     secao(ehProposta ? "VALORES DA PROPOSTA" : "DADOS FINANCEIROS");
-    campo("Valor total", moeda(total));
-    campo("Sinal para reserva da data", moeda(entrada));
-    campo("Forma da entrada", e.formaEntrada || "Não informada");
-    campo("Forma de pagamento", e.formaPagamento || "Não informada");
-    if (e.parcelas) campo("Parcelas", e.parcelas);
-    campo("Saldo pendente", moeda(pendente));
+    if (!ehProposta) {
+      garantirEspaco(30);
+      cardFinanceiro("VALOR TOTAL", moeda(total), [37, 99, 235], margem, 42);
+      cardFinanceiro("ENTRADA / SINAL", moeda(entrada), [202, 138, 4], margem + 47, 42);
+      cardFinanceiro("PENDENTE", moeda(pendente), [220, 38, 38], margem + 94, 42);
+      cardFinanceiro("STATUS", e.quitado || pendente <= 0 ? "QUITADO" : "PENDENTE", e.quitado || pendente <= 0 ? [22, 163, 74] : [220, 38, 38], margem + 141, 41);
+      y += 31;
+      campo("Forma da entrada", e.formaEntrada || "Não informada", { azul: true });
+      campo("Forma de pagamento", e.formaPagamento || "Não informada", { azul: true });
+      if (e.parcelas) campo("Parcelas", e.parcelas, { azul: true });
+    } else {
+      campo("Valor total", moeda(total));
+      campo("Sinal para reserva da data", moeda(entrada));
+      campo("Forma da entrada", e.formaEntrada || "Não informada");
+      campo("Forma de pagamento", e.formaPagamento || "Não informada");
+      if (e.parcelas) campo("Parcelas", e.parcelas);
+      campo("Saldo pendente", moeda(pendente));
+    }
 
     secao("OBSERVAÇÕES");
     paragrafo(obsLimpa);
@@ -2750,27 +2785,24 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     };
 
     const campo = (rotulo, valor) => {
-      const conteudo = `${rotulo}: ${valor || "Não informado"}`;
-      const linhas = doc.splitTextToSize(conteudo, larguraConteudo - 6);
-      garantirEspaco(linhas.length * 6 + 3);
+      const valorFinal = valor || "Não informado";
+      const xValor = margem + 52;
+      const larguraValor = larguraConteudo - 56;
+      const linhasValor = doc.splitTextToSize(String(valorFinal), larguraValor);
+      garantirEspaco(linhasValor.length * 6 + 3);
+
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
-      const primeiraLinha = linhas[0] || "";
-      const posDoisPontos = primeiraLinha.indexOf(":");
-
-      if (posDoisPontos >= 0) {
-        texto(primeiraLinha.slice(0, posDoisPontos + 1), margem, y);
-        doc.setFont("helvetica", "normal");
-        texto(primeiraLinha.slice(posDoisPontos + 1).trim(), margem + 52, y);
-      } else {
-        texto(primeiraLinha, margem, y);
-      }
+      doc.setTextColor(0, 0, 0);
+      texto(`${rotulo}:`, margem, y);
 
       doc.setFont("helvetica", "normal");
-      for (let i = 1; i < linhas.length; i += 1) {
+      texto(linhasValor[0] || "", xValor, y);
+      for (let i = 1; i < linhasValor.length; i += 1) {
         y += 6;
-        texto(linhas[i], margem + 52, y);
+        texto(linhasValor[i], xValor, y);
       }
+
       y += 7;
     };
 
