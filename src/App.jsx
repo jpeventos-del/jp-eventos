@@ -16,6 +16,7 @@ export default function App() {
   const [editandoId, setEditandoId] = useState(null);
   const [busca, setBusca] = useState("");
   const [aba, setAba] = useState("");
+  const [navegacaoAnterior, setNavegacaoAnterior] = useState(null);
   const [voltarCadastroPendente, setVoltarCadastroPendente] = useState(false);
   const [menuAberto, setMenuAberto] = useState(false);
   const [reciboAberto, setReciboAberto] = useState(null);
@@ -25,6 +26,7 @@ export default function App() {
   const [mesCalendario, setMesCalendario] = useState(() => new Date().getMonth());
   const [anoCalendario, setAnoCalendario] = useState(() => new Date().getFullYear());
   const [diaSelecionado, setDiaSelecionado] = useState(null);
+  const [dataConsultaAgenda, setDataConsultaAgenda] = useState("");
   const inputBackupRef = useRef(null);
   const valorInputRef = useRef(null);
   const entradaInputRef = useRef(null);
@@ -192,6 +194,48 @@ export default function App() {
       return [];
     }
   });
+  const contasPadraoJP = [
+    { id: "nubank", nome: "Nubank", saldoInicial: 0 },
+    { id: "caixa_poupanca", nome: "Caixa Poupança", saldoInicial: 0 },
+    { id: "carteira", nome: "Carteira / dinheiro", saldoInicial: 0 }
+  ];
+
+  const [contasFinanceiras, setContasFinanceiras] = useState(() => {
+    try {
+      const salvas = localStorage.getItem("contasFinanceirasJPEventos");
+      return salvas ? JSON.parse(salvas) : contasPadraoJP;
+    } catch {
+      return contasPadraoJP;
+    }
+  });
+
+  const [movimentosCaixa, setMovimentosCaixa] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("movimentosCaixaJPEventos") || "[]");
+    } catch {
+      return [];
+    }
+  });
+
+  const [novaContaFinanceira, setNovaContaFinanceira] = useState("");
+  const [contaFinanceiraEditando, setContaFinanceiraEditando] = useState(null);
+  const [pagamentoEvento, setPagamentoEvento] = useState(null);
+  const [novoMovimento, setNovoMovimento] = useState(() => ({
+    tipo: "saida",
+    data: new Date().toISOString().slice(0, 10),
+    descricao: "",
+    categoria: "Outros",
+    valor: "",
+    contaId: "nubank",
+    contaDestinoId: "caixa_poupanca",
+    formaPagamento: "Pix",
+    parcelas: "1",
+    taxaCartao: "0",
+    observacao: ""
+  }));
+  const [clienteFinanceiroFiltro, setClienteFinanceiroFiltro] = useState("");
+  const [diaFinanceiroSelecionado, setDiaFinanceiroSelecionado] = useState(null);
+
   const bancoCarregadoRef = useRef(false);
   const sincronizandoBancoRef = useRef(false);
   const filaSyncRef = useRef([]);
@@ -410,6 +454,15 @@ export default function App() {
     filaSyncRef.current = filaSync;
     localStorage.setItem("filaSyncJPEventos", JSON.stringify(filaSync));
   }, [filaSync]);
+
+
+  useEffect(() => {
+    localStorage.setItem("contasFinanceirasJPEventos", JSON.stringify(contasFinanceiras));
+  }, [contasFinanceiras]);
+
+  useEffect(() => {
+    localStorage.setItem("movimentosCaixaJPEventos", JSON.stringify(movimentosCaixa));
+  }, [movimentosCaixa]);
 
   useEffect(() => {
     const aoFicarOnline = () => {
@@ -2933,6 +2986,404 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   };
 
   const hoje = new Date();
+  const contaPorId = (id) =>
+    contasFinanceiras.find((conta) => conta.id === id) || contasFinanceiras[0] || { id: "nubank", nome: "Nubank", saldoInicial: 0 };
+
+  const limitarNumero = (valor, min, max) => Math.min(max, Math.max(min, Number(valor || min)));
+
+  const somarMesesData = (dataISO, meses) => {
+    const [ano, mes, dia] = String(dataISO || new Date().toISOString().slice(0, 10)).split("-").map(Number);
+    const data = new Date(ano || new Date().getFullYear(), (mes || 1) - 1 + Number(meses || 0), dia || 1);
+    return data.toISOString().slice(0, 10);
+  };
+
+  const criarMovimentoCaixa = (dados) => {
+    const movimento = {
+      id: criarIdSeguro(),
+      criadoEm: new Date().toISOString(),
+      tipo: dados.tipo || "saida",
+      data: dados.data || new Date().toISOString().slice(0, 10),
+      descricao: dados.descricao || "Lançamento financeiro",
+      categoria: dados.categoria || "Outros",
+      valor: Number(dados.valor || 0),
+      contaId: dados.contaId || contaPorId()?.id || "caixa",
+      contaDestinoId: dados.contaDestinoId || "",
+      formaPagamento: dados.formaPagamento || "Pix",
+      parcelas: dados.parcelas || "1",
+      parcelaNumero: dados.parcelaNumero || "",
+      grupoParcelamentoId: dados.grupoParcelamentoId || "",
+      taxaCartao: Number(dados.taxaCartao || 0),
+      valorBruto: Number(dados.valorBruto || dados.valor || 0),
+      valorTaxa: Number(dados.valorTaxa || 0),
+      eventoId: dados.eventoId || "",
+      cliente: dados.cliente || "",
+      observacao: dados.observacao || ""
+    };
+
+    if (!movimento.valor || movimento.valor <= 0) {
+      alert("Informe um valor maior que zero.");
+      return null;
+    }
+
+    if (movimento.tipo === "transferencia" && movimento.contaId === movimento.contaDestinoId) {
+      alert("Na transferência, a conta de origem e destino precisam ser diferentes.");
+      return null;
+    }
+
+    setMovimentosCaixa((lista) => [movimento, ...lista]);
+    return movimento;
+  };
+
+  const adicionarContaFinanceira = () => {
+    const nome = String(novaContaFinanceira || "").trim();
+    if (!nome) {
+      alert("Digite o nome da conta ou banco.");
+      return;
+    }
+
+    const id = nome
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || criarIdSeguro();
+
+    if (contasFinanceiras.some((conta) => conta.id === id || normalizarTexto(conta.nome) === normalizarTexto(nome))) {
+      alert("Essa conta já existe.");
+      return;
+    }
+
+    setContasFinanceiras((lista) => [...lista, { id, nome, saldoInicial: 0 }]);
+    setNovaContaFinanceira("");
+  };
+
+  const renomearContaFinanceira = (id, novoNome) => {
+    const nome = String(novoNome || "").trim();
+    if (!nome) {
+      alert("Digite um nome para a conta.");
+      return;
+    }
+
+    if (contasFinanceiras.some((conta) => conta.id !== id && normalizarTexto(conta.nome) === normalizarTexto(nome))) {
+      alert("Já existe outra conta com esse nome.");
+      return;
+    }
+
+    setContasFinanceiras((lista) => lista.map((conta) => conta.id === id ? { ...conta, nome } : conta));
+    setContaFinanceiraEditando(null);
+  };
+
+  const aplicarContasPadraoJP = () => {
+    const confirmar = confirm(
+      "Usar contas padrão recomendadas?\n\nNubank\nCaixa Poupança\nCarteira / dinheiro\n\nImportante: PIX agora fica como forma de pagamento, não como banco. Contas antigas que já têm lançamentos serão mantidas para não quebrar o histórico."
+    );
+
+    if (!confirmar) return;
+
+    setContasFinanceiras((listaAtual) => {
+      const usadas = (Array.isArray(listaAtual) ? listaAtual : []).filter((conta) =>
+        movimentosCaixa.some((m) => m.contaId === conta.id || m.contaDestinoId === conta.id)
+      );
+
+      const extrasUsadas = usadas.filter((conta) => !contasPadraoJP.some((padrao) => padrao.id === conta.id));
+      return [...contasPadraoJP, ...extrasUsadas];
+    });
+  };
+
+  const removerContaFinanceira = (id) => {
+    if (contasFinanceiras.length <= 1) {
+      alert("Mantenha pelo menos uma conta cadastrada.");
+      return;
+    }
+
+    const usada = movimentosCaixa.some((m) => m.contaId === id || m.contaDestinoId === id);
+    if (usada) {
+      alert("Essa conta já tem lançamentos. Para manter o histórico correto, ela não será apagada. Se quiser, renomeie a conta.");
+      return;
+    }
+
+    if (!confirm("Remover esta conta?")) return;
+    setContasFinanceiras((lista) => lista.filter((conta) => conta.id !== id));
+  };
+
+  const abrirRegistroPagamentoEvento = (evento, tipo = "entrada") => {
+    const total = Number(evento.valor || 0);
+    const entradaAtual = Number(evento.entrada || 0);
+    const saldo = Math.max(total - entradaAtual, 0);
+    const contaPadrao = contaPorId("nubank")?.id || contasFinanceiras[0]?.id || "nubank";
+
+    setPagamentoEvento({
+      eventoId: evento.id,
+      cliente: evento.nome || "Cliente",
+      tipo,
+      valor: String(tipo === "entrada" ? (entradaAtual > 0 ? entradaAtual : "") : (saldo > 0 ? saldo : total)),
+      contaId: contaPadrao,
+      formaPagamento: tipo === "entrada" ? (evento.formaEntrada || "Pix") : (evento.formaPagamento || "Pix"),
+      parcelas: "1",
+      taxaCartao: "0",
+      data: new Date().toISOString().slice(0, 10),
+      descricao: tipo === "entrada" ? `Entrada/sinal - ${evento.nome || "cliente"}` : `Pagamento total/saldo - ${evento.nome || "cliente"}`
+    });
+  };
+
+
+  const guardarVoltaParaCliente = (evento, origem = "eventos") => {
+    if (!evento) return;
+    setNavegacaoAnterior({
+      aba: origem,
+      busca: evento.nome || "",
+      filtroStatus: "todos",
+      clienteId: evento.id || "",
+      clienteNome: evento.nome || "Cliente",
+      titulo: `← Voltar para ${evento.nome || "cliente"}`
+    });
+  };
+
+  const voltarParaTelaAnterior = () => {
+    if (!navegacaoAnterior) {
+      setAba("eventos");
+      return;
+    }
+
+    setAba(navegacaoAnterior.aba || "eventos");
+    setBusca(navegacaoAnterior.busca || "");
+    setFiltroStatus(navegacaoAnterior.filtroStatus || "todos");
+    setDiaFinanceiroSelecionado(null);
+  };
+
+  const abrirClientePeloFinanceiro = () => {
+    if (navegacaoAnterior?.clienteNome) {
+      setBusca(navegacaoAnterior.clienteNome);
+    }
+    setFiltroStatus("todos");
+    setAba("eventos");
+    setDiaFinanceiroSelecionado(null);
+  };
+
+  const abrirFinanceiroDoCliente = (evento) => {
+    guardarVoltaParaCliente(evento, "eventos");
+    setClienteFinanceiroFiltro(evento?.nome || "");
+    setBusca(evento?.nome || "");
+    setAba("financeiro");
+    setDiaFinanceiroSelecionado(null);
+  };
+
+  const abrirDespesaDoEvento = (evento) => {
+    guardarVoltaParaCliente(evento, "eventos");
+    const contaPadrao = contaPorId("nubank")?.id || contasFinanceiras[0]?.id || "nubank";
+    setNovoMovimento({
+      tipo: "saida",
+      data: new Date().toISOString().slice(0, 10),
+      descricao: `Despesa do evento - ${evento?.nome || "cliente"}`,
+      categoria: "Outros",
+      valor: "",
+      contaId: contaPadrao,
+      contaDestinoId: "",
+      formaPagamento: "Pix",
+      parcelas: "1",
+      taxaCartao: "0",
+      cliente: evento?.nome || "",
+      eventoId: evento?.id || "",
+      observacao: `Evento: ${evento?.tipoEvento || ""} | Data: ${evento?.data ? dataCurtaBR(evento.data) : ""}`
+    });
+    setClienteFinanceiroFiltro(evento?.nome || "");
+    setAba("financeiro");
+  };
+
+  const movimentosDoEvento = (evento) =>
+    movimentosCaixa.filter((m) =>
+      (evento?.id && m.eventoId === evento.id) ||
+      (evento?.nome && normalizarTexto(m.cliente).includes(normalizarTexto(evento.nome))) ||
+      (evento?.nome && normalizarTexto(m.descricao).includes(normalizarTexto(evento.nome)))
+    );
+
+  const resumoFinanceiroEvento = (evento) => {
+    const movs = movimentosDoEvento(evento);
+    const entradas = movs.filter((m) => m.tipo === "entrada").reduce((acc, m) => acc + Number(m.valor || 0), 0);
+    const saidas = movs.filter((m) => m.tipo === "saida").reduce((acc, m) => acc + Number(m.valor || 0), 0);
+    return { movs, entradas, saidas, saldo: entradas - saidas };
+  };
+
+  const salvarPagamentoEvento = () => {
+    if (!pagamentoEvento) return;
+
+    const valorBruto = Number(String(pagamentoEvento.valor || "").replace(",", "."));
+    if (!valorBruto || valorBruto <= 0) {
+      alert("Digite o valor recebido.");
+      return;
+    }
+
+    const ehCartaoCredito = pagamentoEvento.formaPagamento === "Cartão de crédito";
+    const parcelas = ehCartaoCredito ? limitarNumero(pagamentoEvento.parcelas || 1, 1, 12) : 1;
+    const taxaCartao = ehCartaoCredito ? Number(String(pagamentoEvento.taxaCartao || "0").replace(",", ".")) : 0;
+    const valorTaxaTotal = Math.max((valorBruto * taxaCartao) / 100, 0);
+    const valorLiquidoTotal = Math.max(valorBruto - valorTaxaTotal, 0);
+    const grupoParcelamentoId = parcelas > 1 ? criarIdSeguro() : "";
+    const valorLiquidoParcela = valorLiquidoTotal / parcelas;
+    const valorBrutoParcela = valorBruto / parcelas;
+    const valorTaxaParcela = valorTaxaTotal / parcelas;
+
+    let primeiroMovimento = null;
+
+    for (let i = 0; i < parcelas; i += 1) {
+      const mov = criarMovimentoCaixa({
+        tipo: "entrada",
+        data: somarMesesData(pagamentoEvento.data, i),
+        descricao: parcelas > 1
+          ? `Parcela ${i + 1}/${parcelas} - ${pagamentoEvento.descricao}`
+          : pagamentoEvento.descricao,
+        categoria: pagamentoEvento.tipo === "entrada" ? "Entrada / sinal" : "Pagamento de cliente",
+        valor: valorLiquidoParcela,
+        contaId: pagamentoEvento.contaId,
+        formaPagamento: pagamentoEvento.formaPagamento,
+        parcelas: String(parcelas),
+        parcelaNumero: parcelas > 1 ? String(i + 1) : "",
+        grupoParcelamentoId,
+        taxaCartao,
+        valorBruto: valorBrutoParcela,
+        valorTaxa: valorTaxaParcela,
+        eventoId: pagamentoEvento.eventoId,
+        cliente: pagamentoEvento.cliente,
+        observacao: parcelas > 1
+          ? `Pagamento parcelado no cartão em ${parcelas}x. Valor bruto total: ${moeda(valorBruto)}. Taxa: ${taxaCartao}%. Valor líquido total previsto: ${moeda(valorLiquidoTotal)}.`
+          : (taxaCartao > 0 ? `Taxa cartão: ${taxaCartao}%. Valor líquido: ${moeda(valorLiquidoTotal)}.` : "")
+      });
+      if (!mov) return;
+      if (!primeiroMovimento) primeiroMovimento = mov;
+    }
+
+    setEventos((lista) =>
+      lista.map((evento) => {
+        if (evento.id !== pagamentoEvento.eventoId) return evento;
+        const total = Number(evento.valor || 0);
+        const entradaAtual = Number(evento.entrada || 0);
+        const novaEntrada = pagamentoEvento.tipo === "entrada" ? entradaAtual + valorBruto : Math.min(total || entradaAtual + valorBruto, entradaAtual + valorBruto);
+        const quitado = pagamentoEvento.tipo === "total" || (total > 0 && novaEntrada >= total);
+
+        return {
+          ...evento,
+          entrada: String(novaEntrada),
+          formaEntrada: pagamentoEvento.tipo === "entrada" ? pagamentoEvento.formaPagamento : evento.formaEntrada,
+          formaPagamento: pagamentoEvento.tipo === "total" ? pagamentoEvento.formaPagamento : evento.formaPagamento,
+          parcelas: ehCartaoCredito && parcelas > 1 ? `${parcelas}x` : evento.parcelas,
+          quitado,
+          status: quitado ? "confirmado" : evento.status,
+          historico: [
+            criarRegistroHistorico(
+              quitado ? "Pagamento total registrado" : "Entrada/sinal registrada",
+              `${moeda(valorBruto)}${ehCartaoCredito && parcelas > 1 ? ` em ${parcelas}x` : ""} em ${contaPorId(pagamentoEvento.contaId).nome}${taxaCartao > 0 ? ` | líquido previsto: ${moeda(valorLiquidoTotal)}` : ""}`
+            ),
+            ...(Array.isArray(evento.historico) ? evento.historico : [])
+          ].slice(0, 50)
+        };
+      })
+    );
+
+    setPagamentoEvento(null);
+    alert(parcelas > 1 ? `Pagamento parcelado registrado em ${parcelas} parcelas no caixa financeiro.` : "Pagamento registrado no caixa financeiro.");
+  };
+
+  const salvarMovimentoManual = () => {
+    const valorBruto = Number(String(novoMovimento.valor || "").replace(",", "."));
+    if (!valorBruto || valorBruto <= 0) {
+      alert("Informe um valor maior que zero.");
+      return;
+    }
+
+    const ehCartaoCredito = novoMovimento.formaPagamento === "Cartão de crédito" && novoMovimento.tipo === "entrada";
+    const parcelas = ehCartaoCredito ? limitarNumero(novoMovimento.parcelas || 1, 1, 12) : 1;
+    const taxaCartao = ehCartaoCredito ? Number(String(novoMovimento.taxaCartao || "0").replace(",", ".")) : 0;
+    const valorTaxaTotal = Math.max((valorBruto * taxaCartao) / 100, 0);
+    const valorLiquidoTotal = Math.max(valorBruto - valorTaxaTotal, 0);
+    const grupoParcelamentoId = parcelas > 1 ? criarIdSeguro() : "";
+
+    for (let i = 0; i < parcelas; i += 1) {
+      const mov = criarMovimentoCaixa({
+        ...novoMovimento,
+        data: parcelas > 1 ? somarMesesData(novoMovimento.data, i) : novoMovimento.data,
+        descricao: parcelas > 1 ? `Parcela ${i + 1}/${parcelas} - ${novoMovimento.descricao || "Recebimento no cartão"}` : novoMovimento.descricao,
+        valor: ehCartaoCredito ? valorLiquidoTotal / parcelas : valorBruto,
+        parcelas: String(parcelas),
+        parcelaNumero: parcelas > 1 ? String(i + 1) : "",
+        grupoParcelamentoId,
+        taxaCartao,
+        valorBruto: ehCartaoCredito ? valorBruto / parcelas : valorBruto,
+        valorTaxa: ehCartaoCredito ? valorTaxaTotal / parcelas : 0,
+        observacao: ehCartaoCredito && parcelas > 1
+          ? `${novoMovimento.observacao || ""}\nParcelado em ${parcelas}x. Bruto total: ${moeda(valorBruto)}. Taxa: ${taxaCartao}%. Líquido previsto: ${moeda(valorLiquidoTotal)}.`.trim()
+          : novoMovimento.observacao
+      });
+      if (!mov) return;
+    }
+
+    setNovoMovimento((atual) => ({
+      ...atual,
+      data: new Date().toISOString().slice(0, 10),
+      descricao: "",
+      valor: "",
+      parcelas: "1",
+      taxaCartao: "0",
+      observacao: ""
+    }));
+    alert(parcelas > 1 ? `Lançamento parcelado salvo em ${parcelas} parcelas.` : "Lançamento salvo no fluxo de caixa.");
+  };
+
+  const excluirMovimentoCaixa = (id) => {
+    if (!confirm("Excluir este lançamento do caixa?")) return;
+    setMovimentosCaixa((lista) => lista.filter((m) => m.id !== id));
+  };
+
+  const movimentosDoMesAtual = movimentosCaixa.filter((m) => {
+    if (!m.data) return false;
+    const [ano, mes] = String(m.data).split("-").map(Number);
+    return ano === hoje.getFullYear() && mes - 1 === hoje.getMonth();
+  });
+
+  const totalEntradasCaixa = movimentosCaixa.filter((m) => m.tipo === "entrada").reduce((acc, m) => acc + Number(m.valor || 0), 0);
+  const totalSaidasCaixa = movimentosCaixa.filter((m) => m.tipo === "saida").reduce((acc, m) => acc + Number(m.valor || 0), 0);
+  const lucroLiquidoCaixa = totalEntradasCaixa - totalSaidasCaixa;
+  const entradasMesCaixa = movimentosDoMesAtual.filter((m) => m.tipo === "entrada").reduce((acc, m) => acc + Number(m.valor || 0), 0);
+  const saidasMesCaixa = movimentosDoMesAtual.filter((m) => m.tipo === "saida").reduce((acc, m) => acc + Number(m.valor || 0), 0);
+  const lucroMesCaixa = entradasMesCaixa - saidasMesCaixa;
+
+  const saldoDaConta = (contaId) =>
+    movimentosCaixa.reduce((acc, m) => {
+      const valor = Number(m.valor || 0);
+      if (m.tipo === "entrada" && m.contaId === contaId) return acc + valor;
+      if (m.tipo === "saida" && m.contaId === contaId) return acc - valor;
+      if (m.tipo === "transferencia" && m.contaId === contaId) return acc - valor;
+      if (m.tipo === "transferencia" && m.contaDestinoId === contaId) return acc + valor;
+      return acc;
+    }, Number(contaPorId(contaId).saldoInicial || 0));
+
+  const movimentosFinanceiroFiltrados = movimentosCaixa.filter((m) => {
+    const filtro = normalizarTexto(clienteFinanceiroFiltro || "");
+    if (!filtro) return true;
+    return normalizarTexto(`${m.cliente || ""} ${m.descricao || ""} ${m.categoria || ""}`).includes(filtro);
+  });
+
+  const movimentosFinanceiroDoMes = movimentosFinanceiroFiltrados.filter((m) => {
+    if (!m.data) return false;
+    const [ano, mes] = String(m.data).split("-").map(Number);
+    return ano === anoCalendario && mes - 1 === mesCalendario;
+  });
+
+  const entradasFinanceiroMes = movimentosFinanceiroDoMes.filter((m) => m.tipo === "entrada").reduce((acc, m) => acc + Number(m.valor || 0), 0);
+  const saidasFinanceiroMes = movimentosFinanceiroDoMes.filter((m) => m.tipo === "saida").reduce((acc, m) => acc + Number(m.valor || 0), 0);
+  const lucroFinanceiroMes = entradasFinanceiroMes - saidasFinanceiroMes;
+
+  const movimentosDoDiaFinanceiro = diaFinanceiroSelecionado
+    ? movimentosFinanceiroDoMes.filter((m) => Number(String(m.data || "").split("-")[2]) === diaFinanceiroSelecionado)
+    : [];
+
+  const resumoDiaFinanceiro = (dia) => {
+    const movs = movimentosFinanceiroDoMes.filter((m) => Number(String(m.data || "").split("-")[2]) === dia);
+    const entradas = movs.filter((m) => m.tipo === "entrada").reduce((acc, m) => acc + Number(m.valor || 0), 0);
+    const saidas = movs.filter((m) => m.tipo === "saida").reduce((acc, m) => acc + Number(m.valor || 0), 0);
+    return { qtd: movs.length, entradas, saidas, saldo: entradas - saidas };
+  };
+
+
   hoje.setHours(0, 0, 0, 0);
 
   const diasAteData = (data) => {
@@ -3033,6 +3484,28 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   };
 
   const eventosNaMesmaData = form.data ? eventos.filter((e) => e.data === form.data && e.id !== editandoId) : [];
+  const eventosNaDataConsulta = dataConsultaAgenda ? eventos.filter((e) => e.data === dataConsultaAgenda && e.id !== editandoId) : [];
+
+  const consultarEventosDaData = (dataAlvo = form.data) => {
+    if (!dataAlvo) {
+      alert("Escolha uma data primeiro para consultar a agenda.");
+      return;
+    }
+
+    localStorage.setItem("rascunhoFormJPEventos", JSON.stringify(form));
+    localStorage.setItem("rascunhoWhatsAppJPEventos", textoWhatsApp || "");
+    setBusca(dataAlvo);
+    setFiltroStatus("todos");
+    setVoltarCadastroPendente(true);
+    setAba("eventos");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const voltarParaCadastroEmAndamento = () => {
+    setVoltarCadastroPendente(false);
+    setAba("cadastro");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const listaFiltrada = eventos.filter((e) => {
     const texto = normalizarTexto(busca);
@@ -3282,6 +3755,30 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
           </div>
         </div>
 
+        <div style={{ ...estilos.cardClaro, borderColor: "#38bdf8" }}>
+          <strong style={{ color: "#38bdf8" }}>⚡ Atalhos do cliente</strong>
+          <p style={{ color: "#c4b5fd", marginTop: 6, marginBottom: 8 }}>Clique e resolva direto: pagamento, banco, despesa, histórico, recibo ou contrato.</p>
+          {(() => {
+            const resumoCx = resumoFinanceiroEvento(e);
+            return (
+              <div style={estilos.miniInfo}>
+                <span style={{ color: "#22c55e" }}>Entrou no caixa: <strong>{moeda(resumoCx.entradas)}</strong></span>
+                <span style={{ color: "#ef4444" }}>Saídas do cliente/evento: <strong>{moeda(resumoCx.saidas)}</strong></span>
+                <span style={{ color: resumoCx.saldo >= 0 ? "#38bdf8" : "#ef4444" }}>Resultado caixa: <strong>{moeda(resumoCx.saldo)}</strong></span>
+                <span>Movimentos: <strong>{resumoCx.movs.length}</strong></span>
+              </div>
+            );
+          })()}
+        </div>
+
+        <div style={estilos.grupoAcoes}>
+          <div style={estilos.tituloGrupo}>Caixa financeiro do cliente</div>
+          <button style={{ ...estilos.botaoPequeno, background: "#ca8a04", color: "white" }} onClick={() => abrirRegistroPagamentoEvento(e, "entrada")}>+ Entrada / sinal</button>
+          <button style={{ ...estilos.botaoPequeno, background: "#16a34a", color: "white" }} onClick={() => abrirRegistroPagamentoEvento(e, "total")}>+ Pagamento total / saldo</button>
+          <button style={{ ...estilos.botaoPequeno, background: "#991b1b", color: "white" }} onClick={() => abrirDespesaDoEvento(e)}>+ Despesa do evento</button>
+          <button style={{ ...estilos.botaoPequeno, background: "#2563eb", color: "white" }} onClick={() => abrirFinanceiroDoCliente(e)}>Ver financeiro do cliente</button>
+        </div>
+
         {e.obs && (
           <details style={{ marginTop: 10 }}>
             <summary style={{ cursor: "pointer", color: "#c4b5fd", fontWeight: "bold" }}>Observações</summary>
@@ -3343,7 +3840,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   return (
     <div style={estilos.pagina}>
       <h1 style={estilos.titulo}>JP Eventos Pro</h1>
-      <p style={estilos.subtitulo}>Home limpa, financeiro com gráfico, configurações separadas e tudo da v20 mantido.</p>
+      <p style={estilos.subtitulo}>Sistema completo com eventos, contratos, recibos, atalhos por cliente, caixa por contas/bancos, forma de pagamento separada, cartão parcelado até 12x e calendário financeiro.</p>
 
       <input
         placeholder="Buscar por cliente, data, status, cidade, pacote..."
@@ -3376,6 +3873,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
               <button
                 key={id}
                 onClick={() => {
+                  setNavegacaoAnterior(null);
                   setAba(aba === id ? "" : id);
                   setMenuAberto(false);
                 }}
@@ -3505,6 +4003,44 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
         <>
           <h2>{editandoId ? "Editar cadastro" : "Novo cadastro"}</h2>
 
+          <div style={{ ...estilos.card, borderColor: dataConsultaAgenda && eventosNaDataConsulta.length > 0 ? "#f59e0b" : "#38bdf8", background: dataConsultaAgenda && eventosNaDataConsulta.length > 0 ? "rgba(58,46,0,0.35)" : "rgba(14,165,233,0.10)" }}>
+            <h3 style={{ marginTop: 0 }}>📅 Consultar data antes de cadastrar</h3>
+            <p style={{ color: "#c4b5fd" }}>Escolha uma data para conferir rapidamente se já existe evento marcado. Seu cadastro em andamento fica salvo na tela.</p>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "220px 1fr", gap: 10, alignItems: "center" }}>
+              <input
+                type="date"
+                style={{ ...estilos.input, marginBottom: 0 }}
+                value={dataConsultaAgenda}
+                onChange={(e) => setDataConsultaAgenda(e.target.value)}
+              />
+              <div>
+                {dataConsultaAgenda ? (
+                  eventosNaDataConsulta.length > 0 ? (
+                    <strong style={{ color: "#facc15" }}>⚠️ Já existe(m) {eventosNaDataConsulta.length} evento(s) nessa data.</strong>
+                  ) : (
+                    <strong style={{ color: "#22c55e" }}>✅ Nenhum evento encontrado nessa data.</strong>
+                  )
+                ) : (
+                  <strong style={{ color: "#93c5fd" }}>Escolha a data para consultar.</strong>
+                )}
+              </div>
+            </div>
+            {dataConsultaAgenda && eventosNaDataConsulta.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <button style={estilos.botaoRoxo} onClick={() => consultarEventosDaData(dataConsultaAgenda)}>Ver evento(s) dessa data</button>
+                <button
+                  style={estilos.botao}
+                  onClick={() => {
+                    setForm({ ...form, data: dataConsultaAgenda });
+                    setDataConsultaAgenda("");
+                  }}
+                >
+                  Usar essa data no cadastro
+                </button>
+              </div>
+            )}
+          </div>
+
           <div style={{ ...estilos.card, borderColor: "#22c55e" }}>
             <h3>🤖 Importar conversa do WhatsApp</h3>
             <p>Cole aqui a resposta do cliente. O sistema tenta preencher data, horário, endereço, cidade, tipo de evento e observações.</p>
@@ -3584,21 +4120,18 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
 />
 
         {form.data && eventosNaMesmaData.length > 0 && (
-            <div style={{ background: "#3a2e00", color: "yellow", padding: 10, borderRadius: 8, marginBottom: 10, border: "1px solid orange", fontWeight: "bold" }}>
+            <div style={{ background: "#3a2e00", color: "yellow", padding: 12, borderRadius: 12, marginBottom: 12, border: "1px solid orange", fontWeight: "bold" }}>
               ⚠️ Já existe(m) {eventosNaMesmaData.length} evento(s) cadastrado(s) nessa data.
               <br />
-              <button
-                style={estilos.botao}
-                onClick={() => {
-                  localStorage.setItem("rascunhoFormJPEventos", JSON.stringify(form));
-                  localStorage.setItem("rascunhoWhatsAppJPEventos", textoWhatsApp || "");
-                  setBusca(form.data);
-                  setVoltarCadastroPendente(true);
-                  setAba("eventos");
-                }}
-              >
-                Ver evento(s) nessa data
-              </button>
+              <span style={{ color: "#fde68a", fontSize: 13 }}>Você pode conferir os eventos e voltar para este cadastro sem perder o que digitou.</span>
+              <div style={{ marginTop: 8 }}>
+                <button style={estilos.botaoRoxo} onClick={() => consultarEventosDaData(form.data)}>
+                  Ver evento(s) nessa data
+                </button>
+                <button style={estilos.botao} onClick={() => setDataConsultaAgenda(form.data)}>
+                  Usar data na consulta rápida
+                </button>
+              </div>
             </div>
           )}
 
@@ -3734,17 +4267,20 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
         <>
           <h2>Eventos</h2>
           {voltarCadastroPendente && (
-            <div style={{ ...estilos.card, borderColor: "#38bdf8" }}>
-              <strong>Você está vendo os eventos da data pesquisada.</strong>
-              <br />
+            <div style={{ ...estilos.card, borderColor: "#38bdf8", position: "sticky", top: 8, zIndex: 20, background: "linear-gradient(135deg, rgba(14,165,233,0.22), rgba(15,23,42,0.96))" }}>
+              <strong>🔎 Você está conferindo os eventos da data pesquisada.</strong>
+              <p style={{ margin: "6px 0", color: "#c4b5fd" }}>Seu cadastro em andamento continua salvo. Use o botão abaixo para voltar direto para ele.</p>
+              <button style={estilos.botaoRoxo} onClick={voltarParaCadastroEmAndamento}>
+                ← Voltar ao cadastro em andamento
+              </button>
               <button
-                style={estilos.botaoRoxo}
+                style={estilos.botao}
                 onClick={() => {
+                  setBusca("");
                   setVoltarCadastroPendente(false);
-                  setAba("cadastro");
                 }}
               >
-                Voltar ao cadastro em andamento
+                Limpar filtro e ver todos
               </button>
             </div>
           )}
@@ -3990,8 +4526,227 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
 
       {aba === "financeiro" && (
         <>
-          <h2>Caixa Financeiro Premium v22</h2>
+          <h2>Caixa Financeiro Premium v25.4</h2>
+
+          {navegacaoAnterior && (
+            <div style={{
+              ...estilos.card,
+              borderColor: "#22c55e",
+              background: "linear-gradient(135deg, rgba(20,83,45,0.34), rgba(15,23,42,0.92))",
+              position: "sticky",
+              top: 8,
+              zIndex: 20
+            }}>
+              <strong style={{ color: "#bbf7d0" }}>🧭 Navegação rápida</strong>
+              <p style={{ color: "#c4b5fd", marginTop: 6 }}>Você veio do cliente <strong>{navegacaoAnterior.clienteNome}</strong>. Use os botões abaixo para voltar sem procurar tudo de novo.</p>
+              <div style={estilos.grupoAcoes}>
+                <button style={estilos.botaoRoxo} onClick={voltarParaTelaAnterior}>{navegacaoAnterior.titulo || "← Voltar"}</button>
+                <button style={estilos.botaoPequeno} onClick={abrirClientePeloFinanceiro}>Abrir ficha do cliente</button>
+                <button style={estilos.botaoPequeno} onClick={() => { setClienteFinanceiroFiltro(navegacaoAnterior.clienteNome || ""); setDiaFinanceiroSelecionado(null); }}>Ver só financeiro deste cliente</button>
+                <button style={estilos.botaoPequeno} onClick={() => { setClienteFinanceiroFiltro(""); setDiaFinanceiroSelecionado(null); }}>Ver caixa geral</button>
+              </div>
+            </div>
+          )}
+
           <GraficoFinanceiroV22 />
+
+          <div style={{ ...estilos.card, borderColor: "#38bdf8" }}>
+            <h3>🏦 Fluxo de caixa completo</h3>
+            <p style={{ color: "#c4b5fd" }}>Agora você controla entradas, saídas, transferências, saldo por conta e lucro líquido real.</p>
+            <div style={estilos.gridResumo}>
+              <div style={{ ...estilos.cardResumo, borderColor: "#22c55e", color: "#22c55e" }}><strong>🟢 Entradas lançadas</strong><h2>{moeda(totalEntradasCaixa)}</h2></div>
+              <div style={{ ...estilos.cardResumo, borderColor: "#ef4444", color: "#ef4444" }}><strong>🔴 Saídas lançadas</strong><h2>{moeda(totalSaidasCaixa)}</h2></div>
+              <div style={{ ...estilos.cardResumo, borderColor: lucroLiquidoCaixa >= 0 ? "#38bdf8" : "#ef4444", color: lucroLiquidoCaixa >= 0 ? "#38bdf8" : "#ef4444" }}><strong>🔵 Lucro líquido</strong><h2>{moeda(lucroLiquidoCaixa)}</h2></div>
+              <div style={{ ...estilos.cardResumo, borderColor: "#a78bfa" }}><strong>📆 Lucro do mês</strong><h2>{moeda(lucroMesCaixa)}</h2></div>
+            </div>
+          </div>
+
+          <div style={{ ...estilos.card, borderColor: "#38bdf8" }}>
+            <h3>🔎 Filtro rápido do financeiro</h3>
+            <p style={{ color: "#c4b5fd" }}>Digite um cliente para ver só os pagamentos, despesas e parcelas dele. Os botões dentro do cliente já preenchem isso automaticamente.</p>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <input
+                style={{ ...estilos.input, flex: 1, minWidth: 220, marginBottom: 0 }}
+                placeholder="Filtrar por cliente, descrição ou categoria"
+                value={clienteFinanceiroFiltro}
+                onChange={(e) => setClienteFinanceiroFiltro(e.target.value)}
+              />
+              <button style={estilos.botao} onClick={() => { setClienteFinanceiroFiltro(""); setDiaFinanceiroSelecionado(null); }}>Limpar filtro</button>
+            </div>
+          </div>
+
+          <div style={{ ...estilos.card, borderColor: "#a78bfa" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <button style={estilos.botao} onClick={() => mudarMes(-1)}>◀</button>
+              <h3 style={{ textTransform: "capitalize", textAlign: "center", margin: 0 }}>📆 Calendário financeiro - {nomeMes}</h3>
+              <button style={estilos.botao} onClick={() => mudarMes(1)}>▶</button>
+            </div>
+            <p style={{ color: "#c4b5fd" }}>Entradas, saídas, parcelas futuras do cartão e lucro do mês. Clique em um dia para ver os lançamentos.</p>
+            <div style={estilos.gridResumo}>
+              <div style={{ ...estilos.cardResumo, borderColor: "#22c55e", color: "#22c55e" }}><strong>Entradas do mês</strong><h2>{moeda(entradasFinanceiroMes)}</h2></div>
+              <div style={{ ...estilos.cardResumo, borderColor: "#ef4444", color: "#ef4444" }}><strong>Saídas do mês</strong><h2>{moeda(saidasFinanceiroMes)}</h2></div>
+              <div style={{ ...estilos.cardResumo, borderColor: lucroFinanceiroMes >= 0 ? "#38bdf8" : "#ef4444", color: lucroFinanceiroMes >= 0 ? "#38bdf8" : "#ef4444" }}><strong>Resultado do mês</strong><h2>{moeda(lucroFinanceiroMes)}</h2></div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, textAlign: "center", marginBottom: 8 }}>
+              {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => (
+                <strong key={d} style={{ color: "#c4b5fd" }}>{d}</strong>
+              ))}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+              {diasCalendario.map((dia, index) => {
+                const resumoDia = dia ? resumoDiaFinanceiro(dia) : { qtd: 0, entradas: 0, saidas: 0, saldo: 0 };
+                return (
+                  <button
+                    key={`financeiro-${dia}-${index}`}
+                    disabled={!dia}
+                    onClick={() => setDiaFinanceiroSelecionado(dia)}
+                    style={{
+                      minHeight: 76,
+                      borderRadius: 10,
+                      border: diaFinanceiroSelecionado === dia ? "2px solid white" : "1px solid #374151",
+                      background: resumoDia.qtd > 0 ? "rgba(124,58,237,0.55)" : "#111827",
+                      color: dia ? "white" : "transparent",
+                      cursor: dia ? "pointer" : "default",
+                      padding: 6,
+                      textAlign: "left"
+                    }}
+                  >
+                    <strong>{dia || "."}</strong>
+                    {resumoDia.qtd > 0 && (
+                      <div style={{ fontSize: 11, marginTop: 4 }}>
+                        <div style={{ color: "#22c55e" }}>+ {moeda(resumoDia.entradas)}</div>
+                        <div style={{ color: "#ef4444" }}>- {moeda(resumoDia.saidas)}</div>
+                        <div style={{ color: resumoDia.saldo >= 0 ? "#38bdf8" : "#ef4444", fontWeight: 900 }}>{moeda(resumoDia.saldo)}</div>
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {diaFinanceiroSelecionado && (
+              <div style={{ ...estilos.cardClaro, marginTop: 12 }}>
+                <h4>Lançamentos do dia {String(diaFinanceiroSelecionado).padStart(2, "0")}</h4>
+                {movimentosDoDiaFinanceiro.length === 0 && <p>Nenhum lançamento neste dia.</p>}
+                {movimentosDoDiaFinanceiro.map((m) => (
+                  <div key={m.id} style={{ borderBottom: "1px solid #374151", padding: "8px 0" }}>
+                    <strong style={{ color: m.tipo === "entrada" ? "#22c55e" : m.tipo === "saida" ? "#ef4444" : "#38bdf8" }}>{m.tipo === "entrada" ? "+" : m.tipo === "saida" ? "-" : "⇄"} {moeda(m.valor)}</strong>
+                    <br />
+                    {m.descricao} {m.cliente ? `- ${m.cliente}` : ""}
+                    <br />
+                    <span style={{ color: "#c4b5fd" }}>{m.tipo === "transferencia" ? `${contaPorId(m.contaId).nome} → ${contaPorId(m.contaDestinoId).nome}` : contaPorId(m.contaId).nome} | {m.categoria} | {m.formaPagamento}{m.parcelaNumero ? ` | Parcela ${m.parcelaNumero}/${m.parcelas}` : ""}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ ...estilos.card, borderColor: "#22c55e" }}>
+            <h3>💳 Contas / bancos</h3>
+            <div style={estilos.miniInfo}>
+              {contasFinanceiras.map((conta) => (
+                <div key={conta.id} style={{ ...estilos.linhaInfo, borderColor: saldoDaConta(conta.id) >= 0 ? "#22c55e" : "#ef4444" }}>
+                  {contaFinanceiraEditando?.id === conta.id ? (
+                    <>
+                      <input
+                        style={{ ...estilos.input, marginBottom: 8 }}
+                        value={contaFinanceiraEditando.nome}
+                        onChange={(e) => setContaFinanceiraEditando({ ...contaFinanceiraEditando, nome: e.target.value })}
+                        placeholder="Nome da conta"
+                      />
+                      <button style={estilos.botaoRoxo} onClick={() => renomearContaFinanceira(conta.id, contaFinanceiraEditando.nome)}>Salvar nome</button>
+                      <button style={estilos.botaoPequeno} onClick={() => setContaFinanceiraEditando(null)}>Cancelar</button>
+                    </>
+                  ) : (
+                    <>
+                      <strong>{conta.nome}</strong><br />
+                      <span style={{ color: saldoDaConta(conta.id) >= 0 ? "#22c55e" : "#ef4444", fontWeight: 900 }}>{moeda(saldoDaConta(conta.id))}</span>
+                      <br />
+                      <button style={estilos.botaoPequeno} onClick={() => setContaFinanceiraEditando({ id: conta.id, nome: conta.nome })}>Editar nome</button>
+                      <button style={estilos.botaoPequeno} onClick={() => removerContaFinanceira(conta.id)}>Remover</button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+              <input style={{ ...estilos.input, flex: 1, minWidth: 220, marginBottom: 0 }} placeholder="Nova conta/banco. Ex: Mercado Pago, Santander, Bradesco" value={novaContaFinanceira} onChange={(e) => setNovaContaFinanceira(e.target.value)} />
+              <button style={estilos.botaoRoxo} onClick={adicionarContaFinanceira}>Adicionar conta</button>
+              <button style={estilos.botao} onClick={aplicarContasPadraoJP}>Usar padrão JP Eventos: Nubank, Caixa e Carteira</button>
+            </div>
+          </div>
+
+          <div style={{ ...estilos.card, borderColor: "#facc15" }}>
+            <h3>🧾 Novo lançamento de caixa</h3>
+            <div style={estilos.miniInfo}>
+              <select style={estilos.input} value={novoMovimento.tipo} onChange={(e) => setNovoMovimento({ ...novoMovimento, tipo: e.target.value })}>
+                <option value="entrada">Entrada / recebimento</option>
+                <option value="saida">Saída / despesa</option>
+                <option value="transferencia">Transferência entre contas</option>
+              </select>
+              <input style={estilos.input} type="date" value={novoMovimento.data} onChange={(e) => setNovoMovimento({ ...novoMovimento, data: e.target.value })} />
+              <input style={estilos.input} placeholder="Descrição. Ex: gasolina, ajudante, sinal cliente" value={novoMovimento.descricao} onChange={(e) => setNovoMovimento({ ...novoMovimento, descricao: e.target.value })} />
+              <input style={estilos.input} placeholder="Valor" value={novoMovimento.valor} onChange={(e) => setNovoMovimento({ ...novoMovimento, valor: e.target.value })} />
+              <select style={estilos.input} value={novoMovimento.categoria} onChange={(e) => setNovoMovimento({ ...novoMovimento, categoria: e.target.value })}>
+                <option value="Recebimento de cliente">Recebimento de cliente</option>
+                <option value="Entrada / sinal">Entrada / sinal</option>
+                <option value="Combustível">Combustível</option>
+                <option value="Ajudante / funcionário">Ajudante / funcionário</option>
+                <option value="Equipamentos">Equipamentos</option>
+                <option value="Manutenção">Manutenção</option>
+                <option value="Aluguel">Aluguel</option>
+                <option value="Anúncios / tráfego">Anúncios / tráfego</option>
+                <option value="Alimentação">Alimentação</option>
+                <option value="Outros">Outros</option>
+              </select>
+              <select style={estilos.input} value={novoMovimento.contaId} onChange={(e) => setNovoMovimento({ ...novoMovimento, contaId: e.target.value })}>
+                {contasFinanceiras.map((conta) => <option key={conta.id} value={conta.id}>{novoMovimento.tipo === "transferencia" ? "Sai de: " : "Conta: "}{conta.nome}</option>)}
+              </select>
+              {novoMovimento.tipo === "transferencia" && (
+                <select style={estilos.input} value={novoMovimento.contaDestinoId} onChange={(e) => setNovoMovimento({ ...novoMovimento, contaDestinoId: e.target.value })}>
+                  {contasFinanceiras.map((conta) => <option key={conta.id} value={conta.id}>Entra em: {conta.nome}</option>)}
+                </select>
+              )}
+              <select style={estilos.input} value={novoMovimento.formaPagamento} onChange={(e) => setNovoMovimento({ ...novoMovimento, formaPagamento: e.target.value })}>
+                <option value="Pix">Pix</option>
+                <option value="Dinheiro">Dinheiro</option>
+                <option value="Cartão de débito">Cartão de débito</option>
+                <option value="Cartão de crédito">Cartão de crédito</option>
+                <option value="Transferência bancária">Transferência bancária</option>
+              </select>
+              {novoMovimento.formaPagamento === "Cartão de crédito" && novoMovimento.tipo === "entrada" && (
+                <>
+                  <select style={estilos.input} value={novoMovimento.parcelas || "1"} onChange={(e) => setNovoMovimento({ ...novoMovimento, parcelas: e.target.value })}>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}x</option>)}
+                  </select>
+                  <input style={estilos.input} placeholder="Taxa da maquininha %. Ex: 3.5" value={novoMovimento.taxaCartao || ""} onChange={(e) => setNovoMovimento({ ...novoMovimento, taxaCartao: e.target.value })} />
+                </>
+              )}
+            </div>
+            <textarea style={estilos.textarea} placeholder="Observação opcional" value={novoMovimento.observacao} onChange={(e) => setNovoMovimento({ ...novoMovimento, observacao: e.target.value })} />
+            <button style={estilos.botaoRoxo} onClick={salvarMovimentoManual}>Salvar lançamento</button>
+          </div>
+
+          <div style={{ ...estilos.card, borderColor: "#a78bfa" }}>
+            <h3>📋 Histórico do fluxo de caixa</h3>
+            {movimentosCaixa.length === 0 && <p>Nenhum lançamento de caixa ainda.</p>}
+            {movimentosCaixa.slice(0, 80).map((m) => (
+              <div key={m.id} style={{ borderBottom: "1px solid #374151", padding: "10px 0" }}>
+                <strong style={{ color: m.tipo === "entrada" ? "#22c55e" : m.tipo === "saida" ? "#ef4444" : "#38bdf8" }}>
+                  {m.tipo === "entrada" ? "Entrada" : m.tipo === "saida" ? "Saída" : "Transferência"}: {moeda(m.valor)}
+                </strong>
+                <br />
+                {dataCurtaBR(m.data)} - {m.descricao} {m.cliente ? `- ${m.cliente}` : ""}
+                <br />
+                <span style={{ color: "#c4b5fd" }}>
+                  {m.tipo === "transferencia" ? `${contaPorId(m.contaId).nome} → ${contaPorId(m.contaDestinoId).nome}` : contaPorId(m.contaId).nome} | {m.categoria} | {m.formaPagamento}
+                  {m.parcelaNumero ? ` | Parcela ${m.parcelaNumero}/${m.parcelas}` : ""}
+                  {Number(m.taxaCartao || 0) > 0 ? ` | Taxa ${m.taxaCartao}% | Bruto ${moeda(m.valorBruto)} | Líquido ${moeda(m.valor)}` : ""}
+                </span>
+                {m.observacao && <p style={{ whiteSpace: "pre-wrap" }}>{m.observacao}</p>}
+                <button style={{ ...estilos.botaoPequeno, background: "#991b1b" }} onClick={() => excluirMovimentoCaixa(m.id)}>Excluir lançamento</button>
+              </div>
+            ))}
+          </div>
 
           <div style={{ ...estilos.card, borderColor: "#22c55e", background: "linear-gradient(135deg, rgba(6,78,59,0.55), rgba(17,24,39,0.96))" }}>
             <h3>🎯 Meta do mês</h3>
@@ -4132,6 +4887,65 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
               <button style={estilos.botaoPequeno} onClick={() => setWhatsAppEditor({ ...whatsAppEditor, mensagem: "" })}>Apagar texto</button>
               <button style={estilos.botaoPequeno} onClick={() => setWhatsAppEditor(null)}>Cancelar</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {pagamentoEvento && (
+        <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.78)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1001, padding: 12, boxSizing: "border-box" }}>
+          <div style={{ ...estilos.card, width: "min(520px, 100%)", maxHeight: "92vh", overflow: "auto", borderColor: "#22c55e" }}>
+            <h2>💰 Registrar pagamento no caixa</h2>
+            <p><strong>{pagamentoEvento.cliente}</strong></p>
+
+            <label style={{ fontWeight: "bold" }}>TIPO:</label>
+            <select style={estilos.input} value={pagamentoEvento.tipo} onChange={(e) => setPagamentoEvento({ ...pagamentoEvento, tipo: e.target.value })}>
+              <option value="entrada">Entrada / sinal</option>
+              <option value="total">Pagamento total / saldo</option>
+            </select>
+
+            <label style={{ fontWeight: "bold" }}>VALOR RECEBIDO:</label>
+            <input style={estilos.input} value={pagamentoEvento.valor} onChange={(e) => setPagamentoEvento({ ...pagamentoEvento, valor: e.target.value })} />
+
+            <label style={{ fontWeight: "bold" }}>CONTA/BANCO ONDE ENTROU:</label>
+            <p style={{ color: "#c4b5fd", marginTop: -6 }}>Escolha o banco/carteira real. Ex: PIX do Nubank = Conta Nubank + Forma Pix.</p>
+            <select style={estilos.input} value={pagamentoEvento.contaId} onChange={(e) => setPagamentoEvento({ ...pagamentoEvento, contaId: e.target.value })}>
+              {contasFinanceiras.map((conta) => <option key={conta.id} value={conta.id}>{conta.nome}</option>)}
+            </select>
+
+            <label style={{ fontWeight: "bold" }}>FORMA DE PAGAMENTO:</label>
+            <p style={{ color: "#c4b5fd", marginTop: -6 }}>Aqui você escolhe o meio: Pix, crédito, débito, dinheiro ou transferência.</p>
+            <select style={estilos.input} value={pagamentoEvento.formaPagamento} onChange={(e) => setPagamentoEvento({ ...pagamentoEvento, formaPagamento: e.target.value })}>
+              <option value="Pix">Pix</option>
+              <option value="Dinheiro">Dinheiro</option>
+              <option value="Cartão de débito">Cartão de débito</option>
+              <option value="Cartão de crédito">Cartão de crédito</option>
+              <option value="Transferência bancária">Transferência bancária</option>
+            </select>
+
+            {pagamentoEvento.formaPagamento === "Cartão de crédito" && (
+              <div style={{ ...estilos.cardClaro, marginBottom: 12, borderColor: "#38bdf8" }}>
+                <strong style={{ color: "#38bdf8" }}>💳 Parcelamento no cartão</strong>
+                <p style={{ color: "#c4b5fd", marginTop: 4 }}>O valor do cliente conta como pago no evento. No caixa, o sistema lança as parcelas futuras e desconta a taxa da maquininha se você informar.</p>
+                <label style={{ fontWeight: "bold" }}>PARCELAS:</label>
+                <select style={estilos.input} value={pagamentoEvento.parcelas || "1"} onChange={(e) => setPagamentoEvento({ ...pagamentoEvento, parcelas: e.target.value })}>
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}x de {moeda(Number(pagamentoEvento.valor || 0) / n)}</option>)}
+                </select>
+                <label style={{ fontWeight: "bold" }}>TAXA DA MAQUININHA (%):</label>
+                <input style={estilos.input} placeholder="Ex: 3.5" value={pagamentoEvento.taxaCartao || ""} onChange={(e) => setPagamentoEvento({ ...pagamentoEvento, taxaCartao: e.target.value })} />
+                <p style={{ color: "#bbf7d0" }}>
+                  Bruto: {moeda(Number(pagamentoEvento.valor || 0))} | Líquido previsto: {moeda(Math.max(Number(pagamentoEvento.valor || 0) - ((Number(pagamentoEvento.valor || 0) * Number(String(pagamentoEvento.taxaCartao || "0").replace(",", "."))) / 100), 0))}
+                </p>
+              </div>
+            )}
+
+            <label style={{ fontWeight: "bold" }}>DATA DA 1ª PARCELA / RECEBIMENTO:</label>
+            <input type="date" style={estilos.input} value={pagamentoEvento.data} onChange={(e) => setPagamentoEvento({ ...pagamentoEvento, data: e.target.value })} />
+
+            <label style={{ fontWeight: "bold" }}>DESCRIÇÃO:</label>
+            <input style={estilos.input} value={pagamentoEvento.descricao} onChange={(e) => setPagamentoEvento({ ...pagamentoEvento, descricao: e.target.value })} />
+
+            <button style={estilos.botaoRoxo} onClick={salvarPagamentoEvento}>Salvar no caixa</button>
+            <button style={estilos.botao} onClick={() => setPagamentoEvento(null)}>Cancelar</button>
           </div>
         </div>
       )}
