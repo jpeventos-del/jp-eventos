@@ -4041,6 +4041,24 @@ Deseja remover esses lançamentos também?
     return dataEvento >= hoje;
   });
 
+  const hojeISOJP = hoje.toISOString().slice(0, 10);
+  const eventosARealizar = eventosFuturos.filter((e) => !e.executado);
+  const contarEventosPorPeriodo = (listaBase = eventosARealizar) => {
+    const base = Array.isArray(listaBase) ? listaBase.filter((e) => e?.data && !e.executado) : [];
+    return {
+      hoje: base.filter((e) => e.data === hojeISOJP).length,
+      mesAgenda: base.filter((e) => {
+        const [ano, mes] = String(e.data || "").split("-").map(Number);
+        return ano === anoCalendario && mes - 1 === mesCalendario;
+      }).length,
+      anoAgenda: base.filter((e) => {
+        const [ano] = String(e.data || "").split("-").map(Number);
+        return ano === anoCalendario;
+      }).length,
+      total: base.length
+    };
+  };
+
   const proximoEvento = eventosFuturos[0];
 
   const lembretes = eventosFuturos.filter((e) => {
@@ -4577,6 +4595,32 @@ Deseja remover esses lançamentos também?
     return `${dataBR(ev.data)} - ${horario} | ${ev.nome || "Cliente"} | ${ev.tipoEvento || "Evento/serviço"} | ${status}`;
   };
 
+  const renderContadorEventosRealizar = (listaBase = eventosARealizar, titulo = "📊 Eventos a realizar") => {
+    const resumo = contarEventosPorPeriodo(listaBase);
+    const cards = [
+      ["Hoje", resumo.hoje, "eventos para hoje"],
+      ["Mês da agenda", resumo.mesAgenda, `${String(mesCalendario + 1).padStart(2, "0")}/${anoCalendario}`],
+      ["Ano da agenda", resumo.anoAgenda, String(anoCalendario)],
+      ["Total futuro", resumo.total, "a realizar"]
+    ];
+
+    return (
+      <div style={{ ...estilos.card, borderColor: "#22c55e", marginTop: 10 }}>
+        <h3 style={{ marginTop: 0 }}>{titulo}</h3>
+        <p style={{ color: "#c4b5fd", marginTop: -4 }}>Resumo rápido para você saber quantos eventos/serviços ainda tem pela frente.</p>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
+          {cards.map(([rotulo, valor, detalhe]) => (
+            <div key={rotulo} style={{ background: "rgba(255,255,255,0.045)", border: "1px solid rgba(34,197,94,0.42)", borderRadius: 12, padding: 12 }}>
+              <strong style={{ color: "#86efac" }}>{rotulo}</strong>
+              <h2 style={{ margin: "6px 0", color: "#38bdf8" }}>{valor}</h2>
+              <span style={{ color: "#c4b5fd", fontSize: 12 }}>{detalhe}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   const renderListaEventosCompacta = (titulo, lista, opcoes = {}) => {
     const eventosLista = Array.isArray(lista) ? lista : [];
     const eventoAberto = eventosLista.find((ev) => ev.id === eventoExpandidoId);
@@ -4596,6 +4640,14 @@ Deseja remover esses lançamentos também?
           </div>
         </div>
         <p style={{ color: "#c4b5fd" }}>Padrão em lista. Clique em uma linha para abrir o card completo; clique de novo ou use voltar para fechar.</p>
+        {eventosLista.length > 0 && (
+          <div style={{ color: "#c4b5fd", fontSize: 13, marginBottom: 10 }}>
+            Nesta lista: <strong style={{ color: "#38bdf8" }}>{eventosLista.length}</strong> evento(s).
+            Hoje: <strong>{contarEventosPorPeriodo(eventosLista).hoje}</strong> |
+            Mês da agenda: <strong>{contarEventosPorPeriodo(eventosLista).mesAgenda}</strong> |
+            Ano da agenda: <strong>{contarEventosPorPeriodo(eventosLista).anoAgenda}</strong>
+          </div>
+        )}
 
         {eventosLista.length === 0 && <p>Nenhum evento encontrado.</p>}
 
@@ -4626,7 +4678,7 @@ Deseja remover esses lançamentos também?
   return (
     <div style={estilos.pagina} translate="no">
       <h1 style={estilos.titulo}>JP Eventos Pro</h1>
-      <p style={estilos.subtitulo}>Sistema completo com eventos, contratos, recibos, atalhos por cliente, caixa por contas/bancos, forma de pagamento separada, cartão parcelado até 12x e calendário financeiro. v26.9 agenda visual: dias com bolinhas/faixas por status financeiro e busca global de clientes.</p>
+      <p style={estilos.subtitulo}>Sistema completo com eventos, contratos, recibos, atalhos por cliente, caixa por contas/bancos, forma de pagamento separada, cartão parcelado até 12x e calendário financeiro. v26.12 contador de eventos por dia, mês e ano + agenda visual.</p>
 
       <input
         placeholder="Buscar em tudo: cliente, WhatsApp, CPF, evento, serviço, data, cidade, pacote..."
@@ -5424,6 +5476,7 @@ Usar essa data no cadastro
       {aba === "agenda" && (
         <>
           <h2>Agenda</h2>
+          {renderContadorEventosRealizar(eventosARealizar, "📊 Controle de eventos a realizar")}
 
           {proximoEvento && (
             <div style={{ ...estilos.card, background: "#2a1550", border: "2px solid #6c2bd9" }}>
