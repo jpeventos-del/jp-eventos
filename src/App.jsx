@@ -4059,6 +4059,35 @@ Deseja remover esses lançamentos também?
     };
   };
 
+  const eventosExecutados = agendaOrdenada.filter((e) => e.executado);
+  const eventosNaoExecutados = agendaOrdenada.filter((e) => !e.executado);
+  const eventosMesAgenda = agendaOrdenada.filter((e) => {
+    const [ano, mes] = String(e.data || "").split("-").map(Number);
+    return ano === anoCalendario && mes - 1 === mesCalendario;
+  });
+  const eventosAnoAgenda = agendaOrdenada.filter((e) => {
+    const [ano] = String(e.data || "").split("-").map(Number);
+    return ano === anoCalendario;
+  });
+  const eventosHoje = agendaOrdenada.filter((e) => e.data === hojeISOJP);
+
+  const resumoEventosPainel = {
+    hoje: eventosHoje.length,
+    hojeFeitos: eventosHoje.filter((e) => e.executado).length,
+    hojeFaltam: eventosHoje.filter((e) => !e.executado).length,
+    mesTotal: eventosMesAgenda.length,
+    mesFeitos: eventosMesAgenda.filter((e) => e.executado).length,
+    mesFaltam: eventosMesAgenda.filter((e) => !e.executado).length,
+    anoTotal: eventosAnoAgenda.length,
+    anoFeitos: eventosAnoAgenda.filter((e) => e.executado).length,
+    anoFaltam: eventosAnoAgenda.filter((e) => !e.executado).length,
+    totalGeral: agendaOrdenada.length,
+    totalFeitos: eventosExecutados.length,
+    totalFaltam: eventosNaoExecutados.length,
+    futuros: eventosFuturos.length,
+    aRealizar: eventosARealizar.length
+  };
+
   const proximoEvento = eventosFuturos[0];
 
   const lembretes = eventosFuturos.filter((e) => {
@@ -4621,6 +4650,38 @@ Deseja remover esses lançamentos também?
     );
   };
 
+  const renderPainelEventosControle = () => {
+    const cards = [
+      ["Hoje", resumoEventosPainel.hoje, `${resumoEventosPainel.hojeFaltam} falta(m) | ${resumoEventosPainel.hojeFeitos} feito(s)`, "#38bdf8"],
+      ["Mês da agenda", resumoEventosPainel.mesTotal, `${resumoEventosPainel.mesFaltam} falta(m) | ${resumoEventosPainel.mesFeitos} feito(s)`, "#facc15"],
+      ["Ano da agenda", resumoEventosPainel.anoTotal, `${resumoEventosPainel.anoFaltam} falta(m) | ${resumoEventosPainel.anoFeitos} feito(s)`, "#a78bfa"],
+      ["Eventos futuros", resumoEventosPainel.futuros, `${resumoEventosPainel.aRealizar} ainda a realizar`, "#22c55e"],
+      ["Já realizados", resumoEventosPainel.totalFeitos, "marcados como executados", "#86efac"],
+      ["Faltam fazer", resumoEventosPainel.totalFaltam, "não executados no sistema", "#fb7185"]
+    ];
+
+    return (
+      <div style={{ ...estilos.card, borderColor: "#38bdf8", marginTop: 12 }}>
+        <h3 style={{ marginTop: 0 }}>📊 Painel de eventos e serviços</h3>
+        <p style={{ color: "#c4b5fd", marginTop: -4 }}>Controle rápido para saber quantos eventos/serviços você já fez e quantos ainda faltam realizar.</p>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(6, 1fr)", gap: 10 }}>
+          {cards.map(([rotulo, valor, detalhe, cor]) => (
+            <div key={rotulo} style={{ background: "rgba(255,255,255,0.045)", border: `1px solid ${cor}`, borderRadius: 12, padding: 12 }}>
+              <strong style={{ color: cor }}>{rotulo}</strong>
+              <h2 style={{ margin: "6px 0", color: "white" }}>{valor}</h2>
+              <span style={{ color: "#c4b5fd", fontSize: 12 }}>{detalhe}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 8, marginTop: 10 }}>
+          <button style={estilos.botao} onClick={() => { setAba("eventos"); setFiltroStatus("naoExecutado"); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Ver eventos que faltam fazer</button>
+          <button style={estilos.botao} onClick={() => { setAba("eventos"); setFiltroStatus("executado"); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Ver eventos já feitos</button>
+          <button style={estilos.botaoRoxo} onClick={() => { setAba("agenda"); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Abrir agenda do mês</button>
+        </div>
+      </div>
+    );
+  };
+
   const renderListaEventosCompacta = (titulo, lista, opcoes = {}) => {
     const eventosLista = Array.isArray(lista) ? lista : [];
     const eventoAberto = eventosLista.find((ev) => ev.id === eventoExpandidoId);
@@ -4678,7 +4739,7 @@ Deseja remover esses lançamentos também?
   return (
     <div style={estilos.pagina} translate="no">
       <h1 style={estilos.titulo}>JP Eventos Pro</h1>
-      <p style={estilos.subtitulo}>Sistema completo com eventos, contratos, recibos, atalhos por cliente, caixa por contas/bancos, forma de pagamento separada, cartão parcelado até 12x e calendário financeiro. v26.12 contador de eventos por dia, mês e ano + agenda visual.</p>
+      <p style={estilos.subtitulo}>Sistema completo com eventos, contratos, recibos, atalhos por cliente, caixa por contas/bancos, forma de pagamento separada, cartão parcelado até 12x e calendário financeiro. v26.13 painel de eventos feitos, futuros e a realizar.</p>
 
       <input
         placeholder="Buscar em tudo: cliente, WhatsApp, CPF, evento, serviço, data, cidade, pacote..."
@@ -5476,6 +5537,7 @@ Usar essa data no cadastro
       {aba === "agenda" && (
         <>
           <h2>Agenda</h2>
+          {renderPainelEventosControle()}
           {renderContadorEventosRealizar(eventosARealizar, "📊 Controle de eventos a realizar")}
 
           {proximoEvento && (
@@ -5627,7 +5689,9 @@ Usar essa data no cadastro
 
       {aba === "dashboard" && (
         <>
-          <h2>Dashboard v22</h2>
+          <h2>Painel geral</h2>
+          {renderPainelEventosControle()}
+          <h2>Dashboard financeiro</h2>
           <GraficoFinanceiroV22 />
           <div style={estilos.gridResumo}>
             <div onClick={() => abrirDetalheFinanceiro("eventos_total", "Todos os eventos cadastrados")} title="Clique para ver todos" style={estiloCardClicavel(estilos.cardResumo)}><strong>📅 Eventos cadastrados</strong><h2>{eventos.length}</h2></div>
