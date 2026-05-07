@@ -195,15 +195,22 @@ export default function App() {
     }
   });
   const contasPadraoJP = [
-    { id: "nubank", nome: "Nubank", saldoInicial: 0 },
+    { id: "nubank", nome: "Nubank - crédito e débito", saldoInicial: 0 },
     { id: "caixa_poupanca", nome: "Caixa Poupança", saldoInicial: 0 },
+    { id: "pix", nome: "PIX", saldoInicial: 0 },
     { id: "carteira", nome: "Carteira / dinheiro", saldoInicial: 0 }
   ];
 
   const [contasFinanceiras, setContasFinanceiras] = useState(() => {
     try {
       const salvas = localStorage.getItem("contasFinanceirasJPEventos");
-      return salvas ? JSON.parse(salvas) : contasPadraoJP;
+      const listaSalva = salvas ? JSON.parse(salvas) : [];
+      const listaBase = Array.isArray(listaSalva) && listaSalva.length ? listaSalva : contasPadraoJP;
+      const ids = new Set(listaBase.map((conta) => conta.id));
+      return [
+        ...listaBase.map((conta) => conta.id === "nubank" ? { ...conta, nome: conta.nome === "Nubank" ? "Nubank - crédito e débito" : conta.nome } : conta),
+        ...contasPadraoJP.filter((conta) => !ids.has(conta.id))
+      ];
     } catch {
       return contasPadraoJP;
     }
@@ -232,6 +239,18 @@ export default function App() {
     parcelas: "1",
     taxaCartao: "0",
     observacao: ""
+  }));
+
+
+  const [pagamentoInicialCadastro, setPagamentoInicialCadastro] = useState(() => ({
+    ativo: false,
+    valor: "",
+    contaId: "pix",
+    formaPagamento: "Pix",
+    parcelas: "1",
+    taxaCartao: "0",
+    data: new Date().toISOString().slice(0, 10),
+    descricao: "Pagamento inicial / sinal"
   }));
   const [clienteFinanceiroFiltro, setClienteFinanceiroFiltro] = useState("");
   const [diaFinanceiroSelecionado, setDiaFinanceiroSelecionado] = useState(null);
@@ -1970,56 +1989,123 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     }
   };
 
+  const resetarPagamentoInicialCadastro = () => {
+    setPagamentoInicialCadastro({
+      ativo: false,
+      valor: "",
+      contaId: "pix",
+      formaPagamento: "Pix",
+      parcelas: "1",
+      taxaCartao: "0",
+      data: new Date().toISOString().slice(0, 10),
+      descricao: "Pagamento inicial / sinal"
+    });
+  };
+
+  const abrirClienteSalvo = (evento) => {
+    if (!evento) return;
+    setBusca(evento.nome || evento.whatsapp || evento.tipoEvento || "");
+    setFiltroStatus("todos");
+    setNavegacaoAnterior(null);
+    setAba("eventos");
+  };
+
+  const registrarPagamentoInicialDoCadastro = (eventoSalvo) => {
+    if (!pagamentoInicialCadastro.ativo) return { entradaRegistrada: 0, parcelasTexto: "" };
+
+    const valorBruto = Number(String(pagamentoInicialCadastro.valor || "").replace(",", "."));
+    if (!valorBruto || valorBruto <= 0) return { entradaRegistrada: 0, parcelasTexto: "" };
+
+    const ehCartaoCredito = pagamentoInicialCadastro.formaPagamento === "Cartão de crédito";
+    const parcelas = ehCartaoCredito ? limitarNumero(pagamentoInicialCadastro.parcelas || 1, 1, 12) : 1;
+    const taxaCartao = ehCartaoCredito ? Number(String(pagamentoInicialCadastro.taxaCartao || "0").replace(",", ".")) : 0;
+    const valorTaxaTotal = Math.max((valorBruto * taxaCartao) / 100, 0);
+    const valorLiquidoTotal = Math.max(valorBruto - valorTaxaTotal, 0);
+    const grupoParcelamentoId = parcelas > 1 ? criarIdSeguro() : "";
+
+    for (let i = 0; i < parcelas; i += 1) {
+      criarMovimentoCaixa({
+        tipo: "entrada",
+        data: somarMesesData(pagamentoInicialCadastro.data, i),
+        descricao: parcelas > 1
+          ? `Parcela ${i + 1}/${parcelas} - ${pagamentoInicialCadastro.descricao || "Pagamento inicial"} - ${eventoSalvo.nome || "cliente"}`
+          : `${pagamentoInicialCadastro.descricao || "Pagamento inicial"} - ${eventoSalvo.nome || "cliente"}`,
+        categoria: "Entrada / sinal",
+        valor: valorLiquidoTotal / parcelas,
+        contaId: pagamentoInicialCadastro.contaId,
+        formaPagamento: pagamentoInicialCadastro.formaPagamento,
+        parcelas: String(parcelas),
+        parcelaNumero: parcelas > 1 ? String(i + 1) : "",
+        grupoParcelamentoId,
+        taxaCartao,
+        valorBruto: valorBruto / parcelas,
+        valorTaxa: valorTaxaTotal / parcelas,
+        eventoId: eventoSalvo.id,
+        cliente: eventoSalvo.nome || "",
+        observacao: parcelas > 1
+          ? `Pagamento inicial cadastrado junto com o cliente. Bruto total: ${moeda(valorBruto)}. Taxa: ${taxaCartao}%. Líquido previsto: ${moeda(valorLiquidoTotal)}.`
+          : "Pagamento inicial cadastrado junto com o cliente."
+      });
+    }
+
+    return { entradaRegistrada: valorBruto, parcelasTexto: ehCartaoCredito && parcelas > 1 ? `${parcelas}x` : "" };
+  };
+
   const salvar = () => {
     if (!form.nome || !form.whatsapp || !form.tipoEvento || !form.data) {
       alert("Preencha pelo menos nome, WhatsApp, tipo de evento e data.");
       return;
     }
 
-    const dadosEvento = {
+    const idFinal = editandoId || criarIdSeguro();
+    const dataCadastroFinal = form.dataCadastro || new Date().toLocaleString("pt-BR");
+
+    const eventoBase = {
       ...form,
+      id: idFinal,
+      dataCadastro: dataCadastroFinal,
       obs: juntarObservacoesJP(form.obsInternas ?? form.obs, form.obsExtras),
       horaInicio: normalizarHorarioManual(form.horaInicio) || form.horaInicio,
       horaFim: normalizarHorarioManual(form.horaFim) || form.horaFim,
       status: form.status || "pre",
-      quitado:
-        form.status === "pre"
-          ? false
-          : form.formaPagamento === "Valor total" ||
-            form.formaPagamento === "Valor total à vista" ||
-            (Number(form.valor || 0) > 0 && Number(form.entrada || 0) >= Number(form.valor || 0))
-            ? true
-            : Boolean(form.quitado),
       executado: Boolean(form.executado)
     };
 
+    const pagamentoCadastro = registrarPagamentoInicialDoCadastro(eventoBase);
+    const entradaComPagamentoInicial = pagamentoCadastro.entradaRegistrada > 0
+      ? Math.max(Number(eventoBase.entrada || 0), pagamentoCadastro.entradaRegistrada)
+      : Number(eventoBase.entrada || 0);
+
+    const valorTotal = Number(eventoBase.valor || 0);
+    const quitadoAutomatico = valorTotal > 0 && entradaComPagamentoInicial >= valorTotal;
+
+    const dadosEvento = {
+      ...eventoBase,
+      entrada: String(entradaComPagamentoInicial),
+      formaEntrada: pagamentoCadastro.entradaRegistrada > 0 ? pagamentoInicialCadastro.formaPagamento : eventoBase.formaEntrada,
+      formaPagamento: eventoBase.formaPagamento || (pagamentoCadastro.entradaRegistrada > 0 ? "Entrada / sinal" : ""),
+      parcelas: pagamentoCadastro.parcelasTexto || eventoBase.parcelas,
+      quitado: quitadoAutomatico,
+      historico: [
+        criarRegistroHistorico(
+          editandoId ? "Cadastro atualizado" : "Cadastro criado",
+          pagamentoCadastro.entradaRegistrada > 0
+            ? `Cliente salvo e pagamento inicial registrado: ${moeda(pagamentoCadastro.entradaRegistrada)} em ${contaPorId(pagamentoInicialCadastro.contaId).nome}`
+            : (eventoBase.status === "confirmado" ? "Reserva confirmada" : "Pré-reserva/proposta")
+        ),
+        ...(Array.isArray(form.historico) ? form.historico : [])
+      ].slice(0, 50)
+    };
+
     if (editandoId) {
-      const atualizados = eventos.map((e) =>
-        e.id === editandoId
-          ? {
-              ...dadosEvento,
-              id: editandoId,
-              dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR"),
-              historico: [
-                criarRegistroHistorico("Cadastro atualizado", dadosEvento.status === "confirmado" ? "Reserva confirmada" : "Pré-reserva/proposta"),
-                ...(Array.isArray(e.historico) ? e.historico : [])
-              ].slice(0, 50)
-            }
-          : e
-      );
-      setEventos(atualizados);
+      setEventos((lista) => lista.map((e) => (e.id === editandoId ? dadosEvento : e)));
     } else {
-      const novo = {
-        ...dadosEvento,
-        id: criarIdSeguro(),
-        dataCadastro: new Date().toLocaleString("pt-BR"),
-        historico: [criarRegistroHistorico("Cadastro criado", dadosEvento.status === "confirmado" ? "Reserva confirmada" : "Pré-reserva/proposta")]
-      };
-      setEventos([novo, ...eventos]);
+      setEventos((lista) => [dadosEvento, ...lista]);
     }
 
     limpar();
-    setAba("eventos");
+    resetarPagamentoInicialCadastro();
+    abrirClienteSalvo(dadosEvento);
   };
 
   const excluirEvento = (id) => {
@@ -4338,6 +4424,91 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             <br />
             <span style={{ color: "#bbf7d0" }}>Esse cálculo usa Valor Total - Custo do Evento.</span>
           </div>
+          <div style={{ ...estilos.card, borderColor: pagamentoInicialCadastro.ativo ? "#22c55e" : "#38bdf8", background: pagamentoInicialCadastro.ativo ? "rgba(20,83,45,0.22)" : "rgba(14,165,233,0.12)" }}>
+            <h3>💳 Pagamento inicial no cadastro</h3>
+            <p style={{ color: "#c4b5fd" }}>
+              Use essa área quando o cliente já pagou sinal/entrada enquanto você ainda está cadastrando. Ao salvar, o sistema já lança no caixa e abre a ficha do cliente salvo.
+            </p>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: "bold", marginBottom: 10 }}>
+              <input
+                type="checkbox"
+                checked={Boolean(pagamentoInicialCadastro.ativo)}
+                onChange={(e) => setPagamentoInicialCadastro((atual) => ({
+                  ...atual,
+                  ativo: e.target.checked,
+                  valor: e.target.checked && !atual.valor ? (form.entrada || "") : atual.valor
+                }))}
+              />
+              Registrar esse pagamento no caixa ao salvar
+            </label>
+
+            {pagamentoInicialCadastro.ativo && (
+              <>
+                <label style={{ fontWeight: "bold", color: "#facc15" }}>VALOR RECEBIDO AGORA:</label>
+                <input
+                  style={{ ...estilos.input, borderColor: "#facc15" }}
+                  placeholder="Ex: 125"
+                  value={pagamentoInicialCadastro.valor}
+                  onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, valor: e.target.value })}
+                />
+
+                <label style={{ fontWeight: "bold" }}>CONTA/BANCO ONDE ENTROU:</label>
+                <select
+                  style={estilos.input}
+                  value={pagamentoInicialCadastro.contaId}
+                  onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, contaId: e.target.value })}
+                >
+                  {contasFinanceiras.map((conta) => <option key={conta.id} value={conta.id}>{conta.nome}</option>)}
+                </select>
+
+                <label style={{ fontWeight: "bold" }}>FORMA DE PAGAMENTO:</label>
+                <select
+                  style={estilos.input}
+                  value={pagamentoInicialCadastro.formaPagamento}
+                  onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, formaPagamento: e.target.value })}
+                >
+                  <option value="Pix">Pix</option>
+                  <option value="Dinheiro">Dinheiro</option>
+                  <option value="Cartão de débito">Cartão de débito</option>
+                  <option value="Cartão de crédito">Cartão de crédito</option>
+                  <option value="Transferência bancária">Transferência bancária</option>
+                </select>
+
+                {pagamentoInicialCadastro.formaPagamento === "Cartão de crédito" && (
+                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                    <div>
+                      <label style={{ fontWeight: "bold" }}>PARCELAS:</label>
+                      <select
+                        style={estilos.input}
+                        value={pagamentoInicialCadastro.parcelas || "1"}
+                        onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, parcelas: e.target.value })}
+                      >
+                        {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((n) => <option key={n} value={n}>{n}x</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontWeight: "bold" }}>TAXA DA MAQUININHA (%):</label>
+                      <input
+                        style={estilos.input}
+                        placeholder="Ex: 3.5"
+                        value={pagamentoInicialCadastro.taxaCartao || ""}
+                        onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, taxaCartao: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <label style={{ fontWeight: "bold" }}>DATA DO RECEBIMENTO / 1ª PARCELA:</label>
+                <input
+                  type="date"
+                  style={estilos.input}
+                  value={pagamentoInicialCadastro.data}
+                  onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, data: e.target.value })}
+                />
+              </>
+            )}
+          </div>
 <label style={{ fontWeight: "bold" }}>FORMA DA ENTRADA / SINAL:</label>
           <select style={estilos.input} value={form.formaEntrada || ""} onChange={(e) => setForm({ ...form, formaEntrada: e.target.value })}>
             <option value="">Forma da entrada / sinal</option>
@@ -4395,7 +4566,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             placeholder="Digite aqui observações para aparecer na proposta, contrato e recibo. Esse campo é separado das observações de cima."
           />
 
-<button style={estilos.botaoRoxo} onClick={salvar}>{editandoId ? "Salvar edição" : "Salvar"}</button>
+<button style={estilos.botaoRoxo} onClick={salvar}>{editandoId ? "Salvar edição e abrir cliente" : "Salvar cadastro e abrir cliente"}</button>
           <button style={estilos.botao} onClick={() => abrirWhatsAppProposta(form)}>Enviar proposta no WhatsApp</button>
           <button style={estilos.botaoRoxo} onClick={() => gerarProposta({ ...form, id: editandoId || Date.now(), dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR") })}>Proposta PDF agora</button>
           <button style={estilos.botao} onClick={() => gerarContrato({ ...form, id: editandoId || Date.now(), dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR"), status: "confirmado" })}>Contrato PDF agora</button>
