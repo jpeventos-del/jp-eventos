@@ -2016,6 +2016,18 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     const valorBruto = Number(String(pagamentoInicialCadastro.valor || "").replace(",", "."));
     if (!valorBruto || valorBruto <= 0) return { entradaRegistrada: 0, parcelasTexto: "" };
 
+    // Segurança contra duplicidade: se este cliente já tem um lançamento automático inicial,
+    // não cria outro igual quando você abre/edita/salva novamente.
+    const jaTemPagamentoInicial = movimentosCaixa.some((mov) =>
+      mov?.eventoId === eventoSalvo?.id &&
+      mov?.tipo === "entrada" &&
+      String(mov?.observacao || "").includes("Pagamento inicial cadastrado junto com o cliente")
+    );
+    if (jaTemPagamentoInicial) {
+      alert("Esse cliente já tem pagamento inicial registrado no caixa. Para novo recebimento, use os botões + Entrada / sinal ou + Pagamento total / saldo na ficha do cliente.");
+      return { entradaRegistrada: 0, parcelasTexto: "" };
+    }
+
     const ehCartaoCredito = pagamentoInicialCadastro.formaPagamento === "Cartão de crédito";
     const parcelas = ehCartaoCredito ? limitarNumero(pagamentoInicialCadastro.parcelas || 1, 1, 12) : 1;
     const taxaCartao = ehCartaoCredito ? Number(String(pagamentoInicialCadastro.taxaCartao || "0").replace(",", ".")) : 0;
@@ -2115,6 +2127,9 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   };
 
   const editarEvento = (evento) => {
+    // Ao editar um cliente já salvo, não deixa o pagamento inicial ficar marcado por engano.
+    // Assim o sistema não duplica entrada no caixa e não joga Valor Total dentro de Entrada/Sinal.
+    resetarPagamentoInicialCadastro();
     setForm({
       ...formInicial,
       ...evento,
@@ -4437,7 +4452,8 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
                 onChange={(e) => setPagamentoInicialCadastro((atual) => ({
                   ...atual,
                   ativo: e.target.checked,
-                  valor: e.target.checked && !atual.valor ? (form.entrada || "") : atual.valor
+                  // Não preenche sozinho pelo Valor Total. Você digita aqui somente o que realmente entrou no caixa.
+                  valor: e.target.checked ? atual.valor : ""
                 }))}
               />
               Registrar esse pagamento no caixa ao salvar
