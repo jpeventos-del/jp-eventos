@@ -4119,6 +4119,10 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     );
   };
 
+  const custoCadastroNumero = valorNumericoJP(form.custo);
+  const valorCadastroNumero = valorNumericoJP(form.valor);
+  const lucroCadastroNumero = Math.max(valorCadastroNumero - custoCadastroNumero, 0);
+
   return (
     <div style={estilos.pagina}>
       <h1 style={estilos.titulo}>JP Eventos Pro</h1>
@@ -4494,7 +4498,10 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             style={estilos.input}
             placeholder="Digite só o valor. Ex: 100"
             value={form.custo || ""}
-            onChange={(e) => setForm({ ...form, custo: e.target.value })}
+            onChange={(e) => {
+              const valorLimpo = String(e.target.value || "").replace(/[^0-9,.]/g, "");
+              setForm((atual) => ({ ...atual, custo: valorLimpo }));
+            }}
           />
 
           <label style={{ fontWeight: "bold" }}>DESCRIÇÃO DO CUSTO:</label>
@@ -4502,13 +4509,13 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             style={estilos.input}
             placeholder="Ex: combustível, ajudante, alimentação, aluguel de equipamento..."
             value={form.custoDescricao || ""}
-            onChange={(e) => setForm({ ...form, custoDescricao: e.target.value })}
+            onChange={(e) => setForm((atual) => ({ ...atual, custoDescricao: e.target.value }))}
           />
 
           <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20, 83, 45, 0.20)" }}>
-            <strong>📈 Lucro estimado:</strong> {moeda(Math.max(valorNumericoJP(form.valor) - valorNumericoJP(form.custo), 0))}
+            <strong>📈 Lucro estimado:</strong> {moeda(lucroCadastroNumero)}
             <br />
-            <span style={{ color: "#bbf7d0" }}>Atualiza na hora: Valor total {moeda(form.valor)} - Custo {moeda(form.custo)}{form.custoDescricao ? ` (${form.custoDescricao})` : ""}.</span>
+            <span style={{ color: "#bbf7d0" }}>Atualiza na hora: Valor total {moeda(valorCadastroNumero)} - Custo {moeda(custoCadastroNumero)}{form.custoDescricao ? ` (${String(form.custoDescricao)})` : ""}.</span>
           </div>
 
           <div style={{ ...estilos.card, borderColor: form.pagamentoCadastroTipo && form.pagamentoCadastroTipo !== "nao" ? "#22c55e" : "#38bdf8", background: form.pagamentoCadastroTipo && form.pagamentoCadastroTipo !== "nao" ? "rgba(20,83,45,0.20)" : "rgba(14,165,233,0.10)" }}>
