@@ -31,6 +31,7 @@ export default function App() {
   const [mesCalendario, setMesCalendario] = useState(() => new Date().getMonth());
   const [anoCalendario, setAnoCalendario] = useState(() => new Date().getFullYear());
   const [diaSelecionado, setDiaSelecionado] = useState(null);
+  const [mostrarProximosComDiaSelecionado, setMostrarProximosComDiaSelecionado] = useState(false);
   const [dataConsultaAgenda, setDataConsultaAgenda] = useState("");
   const inputBackupRef = useRef(null);
   const valorInputRef = useRef(null);
@@ -5486,7 +5487,7 @@ Usar essa data no cadastro
                   <button
                     key={`${dia}-${index}`}
                     disabled={!dia}
-                    onClick={() => setDiaSelecionado(dia)}
+                    onClick={() => { setDiaSelecionado(dia); setMostrarProximosComDiaSelecionado(false); }}
                     title={qtd > 0 ? `${qtd} evento(s) neste dia` : "Sem evento"}
                     style={{
                       minHeight: isMobile ? 58 : 68,
@@ -5539,14 +5540,35 @@ Usar essa data no cadastro
           </div>
 
           {diaSelecionado && (
-            <div style={estilos.card}>
-              <h3>Eventos do dia {String(diaSelecionado).padStart(2, "0")}</h3>
-              {renderListaEventosCompacta(`Eventos do dia ${String(diaSelecionado).padStart(2, "0")}`, eventosDoDiaSelecionado)}
-            </div>
+            <>
+              <div style={estilos.card}>
+                <h3>Eventos do dia {String(diaSelecionado).padStart(2, "0")}</h3>
+                <p style={{ color: "#c4b5fd", marginTop: 0 }}>Você está vendo apenas os eventos desta data. Use o botão abaixo se quiser também ver os próximos eventos gerais.</p>
+                {renderListaEventosCompacta(`Eventos do dia ${String(diaSelecionado).padStart(2, "0")}`, eventosDoDiaSelecionado)}
+                <button
+                  type="button"
+                  onClick={() => setMostrarProximosComDiaSelecionado((v) => !v)}
+                  style={{ ...estilos.btnGrad, marginTop: 12 }}
+                >
+                  {mostrarProximosComDiaSelecionado ? "Ocultar próximos eventos" : "Ver próximos eventos"}
+                </button>
+              </div>
+              {mostrarProximosComDiaSelecionado && (
+                <div style={estilos.card}>
+                  <h3>Próximos eventos gerais</h3>
+                  <p style={{ color: "#c4b5fd", marginTop: 0 }}>Lista geral dos próximos eventos, independente do dia selecionado.</p>
+                  {renderListaEventosCompacta("Próximos eventos gerais", eventosFuturos)}
+                </div>
+              )}
+            </>
           )}
 
-          <h3>Próximos eventos</h3>
-          {renderListaEventosCompacta("Próximos eventos", eventosFuturos)}
+          {!diaSelecionado && (
+            <>
+              <h3>Próximos eventos</h3>
+              {renderListaEventosCompacta("Próximos eventos", eventosFuturos)}
+            </>
+          )}
         </>
       )}
 
