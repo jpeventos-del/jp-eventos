@@ -19,6 +19,11 @@ export default function App() {
   const [navegacaoAnterior, setNavegacaoAnterior] = useState(null);
   const [voltarCadastroPendente, setVoltarCadastroPendente] = useState(false);
   const [menuAberto, setMenuAberto] = useState(false);
+  const [eventoExpandidoId, setEventoExpandidoId] = useState(null);
+  const [modoEventosExpandido, setModoEventosExpandido] = useState(false);
+  const [tituloListaAberta, setTituloListaAberta] = useState("");
+  const [clienteAbertoChave, setClienteAbertoChave] = useState(null);
+  const [origemTelaAnterior, setOrigemTelaAnterior] = useState(null);
   const [reciboAberto, setReciboAberto] = useState(null);
   const [tipoRecibo, setTipoRecibo] = useState("sinal");
   const [pagamentoRecibo, setPagamentoRecibo] = useState("Pix");
@@ -38,6 +43,8 @@ export default function App() {
     cpf: "",
     whatsapp: "",
     tipoEvento: "",
+    servicosTexto: "",
+    clienteOnly: false,
     data: "",
     horaInicio: "",
     horaFim: "",
@@ -338,7 +345,7 @@ export default function App() {
     nome: evento.nome || "",
     cpf: evento.cpf || "",
     whatsapp: evento.whatsapp || "",
-    tipo_evento: evento.tipoEvento || "",
+    tipo_evento: evento.clienteOnly ? "__CLIENTE__" : (evento.tipoEvento || ""),
     data: evento.data || "",
     hora_inicio: evento.horaInicio || "",
     hora_fim: evento.horaFim || "",
@@ -347,13 +354,16 @@ export default function App() {
     bairro: evento.bairro || "",
     pacote: evento.pacote || "",
     pacote_personalizado: evento.pacotePersonalizado || "",
-    valor: Number(evento.valor || 0),
+    valor: evento.clienteOnly ? 0 : Number(evento.valor || 0),
     entrada: Number(evento.entrada || 0),
     custo: valorNumericoJP(evento.custo),
     forma_entrada: evento.formaEntrada || "",
     forma_pagamento: evento.formaPagamento || "",
     parcelas: evento.parcelas || "",
-    obs: juntarObservacoesJP(evento.obsInternas ?? evento.obs, evento.obsExtras),
+    obs: juntarObservacoesJP(
+      [evento.obsInternas ?? evento.obs, evento.servicosTexto ? `Serviços contratados: ${evento.servicosTexto}` : ""].filter(Boolean).join("\n"),
+      evento.obsExtras
+    ),
     status: evento.status || "pre",
     executado: Boolean(evento.executado),
     quitado: Boolean(evento.quitado),
@@ -366,7 +376,9 @@ export default function App() {
     nome: row.nome || "",
     cpf: row.cpf || "",
     whatsapp: row.whatsapp || "",
-    tipoEvento: row.tipo_evento || "",
+    tipoEvento: row.tipo_evento === "__CLIENTE__" ? "" : (row.tipo_evento || ""),
+    clienteOnly: row.tipo_evento === "__CLIENTE__",
+    servicosTexto: extrairServicosTextoJP(row.obs || ""),
     data: row.data || "",
     horaInicio: row.hora_inicio || "",
     horaFim: row.hora_fim || "",
@@ -785,6 +797,21 @@ Se aparecer o botão automático de instalação, use ele primeiro.`);
     return Number.isFinite(numero) ? numero : 0;
   };
 
+  const extrairServicosTextoJP = (obs = "") => {
+    const linha = String(obs || "").split("\n").find((l) => l.toLowerCase().startsWith("serviços contratados:") || l.toLowerCase().startsWith("servicos contratados:"));
+    return linha ? linha.split(":").slice(1).join(":").trim() : "";
+  };
+
+  const removerServicosTextoJP = (obs = "") =>
+    String(obs || "")
+      .split("\n")
+      .filter((l) => {
+        const n = l.toLowerCase().trim();
+        return !n.startsWith("serviços contratados:") && !n.startsWith("servicos contratados:");
+      })
+      .join("\n")
+      .trim();
+
   const extrairCustoDescricaoJP = (obs = "") => {
     const linha = String(obs || "")
       .split("\n")
@@ -846,7 +873,7 @@ Se aparecer o botão automático de instalação, use ele primeiro.`);
 
   const dataBR = (data) => {
     if (!data) return "Não informado";
-    const [ano, mes, dia] = data.split("-");
+    const [ano, mes, dia] = String(data).split("-");
     const dataObj = new Date(Number(ano), Number(mes) - 1, Number(dia));
     const dias = [
       "domingo",
@@ -857,6 +884,7 @@ Se aparecer o botão automático de instalação, use ele primeiro.`);
       "sexta-feira",
       "sábado"
     ];
+    // Mantém formato brasileiro fixo e reduz confusão do tradutor do Chrome no celular.
     return `${dias[dataObj.getDay()]} - ${dia}/${mes}/${ano}`;
   };
 
@@ -2032,13 +2060,54 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   };
 
   const salvar = () => {
+    const modoCliente = aba === "cadastro" && !editandoId;
+
+    if (modoCliente) {
+      if (!form.nome || !form.whatsapp) {
+        alert("Preencha pelo menos nome e WhatsApp do cliente.");
+        return;
+      }
+
+      const idCliente = criarIdSeguro();
+      const novoCliente = {
+        ...formInicial,
+        id: idCliente,
+        clienteOnly: true,
+        nome: form.nome,
+        whatsapp: form.whatsapp,
+        cpf: form.cpf || "",
+        endereco: form.endereco || "",
+        cidade: form.cidade || "",
+        bairro: form.bairro || "",
+        obsInternas: form.obsInternas || form.obs || "",
+        obsExtras: form.obsExtras || "",
+        obs: juntarObservacoesJP(form.obsInternas || form.obs || "", form.obsExtras || ""),
+        tipoEvento: "",
+        data: "",
+        valor: "0",
+        entrada: "0",
+        custo: "0",
+        status: "cliente",
+        dataCadastro: new Date().toLocaleString("pt-BR"),
+        historico: [criarRegistroHistorico("Cliente cadastrado", "Cadastro inicial sem evento/serviço")]
+      };
+
+      setEventos([novoCliente, ...eventos]);
+      limpar();
+      setClienteAbertoChave(chaveClienteJP(novoCliente));
+      setAba("clientes");
+      setMenuAberto(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
     if (!form.nome || !form.whatsapp || !form.tipoEvento || !form.data) {
-      alert("Preencha pelo menos nome, WhatsApp, tipo de evento e data.");
+      alert("Preencha pelo menos cliente, WhatsApp, tipo de evento e data.");
       return;
     }
 
     const custoDescricaoLimpa = String(form.custoDescricao || "").trim();
-    const obsInternasSemCusto = removerCustoDescricaoJP(form.obsInternas ?? form.obs);
+    const obsInternasSemCusto = removerServicosTextoJP(removerCustoDescricaoJP(form.obsInternas ?? form.obs));
     const obsInternasComCusto = [
       obsInternasSemCusto,
       custoDescricaoLimpa ? `Custo do evento: ${custoDescricaoLimpa}` : ""
@@ -2074,6 +2143,8 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       ...form,
       entrada: String(entradaDocumento),
       custoDescricao: custoDescricaoLimpa,
+      servicosTexto: String(form.servicosTexto || "").trim(),
+      clienteOnly: false,
       obsInternas: obsInternasComCusto,
       formaEntrada: temPagamentoNoCadastro ? (form.pagamentoCadastroForma || form.formaEntrada || "Pix") : (form.formaEntrada || ""),
       formaPagamento: ehPagamentoTotalNoCadastro ? (form.pagamentoCadastroForma || form.formaPagamento || "Pix") : (form.formaPagamento || ""),
@@ -2166,14 +2237,101 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       setFiltroStatus("todos");
     }
 
+    const chaveDepois = chaveClienteJP(dadosEvento);
     limpar();
-    setAba("eventos");
+    setClienteAbertoChave(chaveDepois);
+    setAba("clientes");
+    setMenuAberto(false);
+  };
+
+  const salvarClienteEIniciarServico = () => {
+    if (!form.nome || !form.whatsapp) {
+      alert("Preencha pelo menos nome e WhatsApp do cliente antes de criar evento/serviço.");
+      return;
+    }
+
+    const idCliente = criarIdSeguro();
+    const novoCliente = {
+      ...formInicial,
+      id: idCliente,
+      clienteOnly: true,
+      nome: form.nome,
+      whatsapp: form.whatsapp,
+      cpf: form.cpf || "",
+      endereco: form.endereco || "",
+      cidade: form.cidade || "",
+      bairro: form.bairro || "",
+      obsInternas: form.obsInternas || form.obs || "",
+      obsExtras: form.obsExtras || "",
+      obs: juntarObservacoesJP(form.obsInternas || form.obs || "", form.obsExtras || ""),
+      tipoEvento: "",
+      servicosTexto: "",
+      data: "",
+      valor: "0",
+      entrada: "0",
+      custo: "0",
+      status: "cliente",
+      dataCadastro: new Date().toLocaleString("pt-BR"),
+      historico: [criarRegistroHistorico("Cliente cadastrado", "Cliente criado e direcionado para novo evento/serviço")]
+    };
+
+    setEventos([novoCliente, ...eventos]);
+    setClienteAbertoChave(chaveClienteJP(novoCliente));
+    setOrigemTelaAnterior("clientes");
+    setForm({
+      ...formInicial,
+      nome: novoCliente.nome,
+      whatsapp: novoCliente.whatsapp,
+      cpf: novoCliente.cpf,
+      endereco: novoCliente.endereco,
+      cidade: novoCliente.cidade,
+      bairro: novoCliente.bairro,
+      obsInternas: `Novo evento/serviço para cliente já cadastrado: ${novoCliente.nome || ""}`
+    });
+    setAba("servico");
+    setMenuAberto(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const excluirEvento = (id) => {
-    if (confirm("Tem certeza que deseja excluir este cadastro?")) {
-      setEventos(eventos.filter((e) => e.id !== id));
+    const eventoAlvo = eventos.find((e) => e.id === id);
+    if (!eventoAlvo) {
+      alert("Evento/serviço não encontrado.");
+      return;
     }
+
+    const titulo = eventoAlvo.tipoEvento || eventoAlvo.pacote || "evento/serviço";
+    const dataTexto = eventoAlvo.data ? dataCurtaBR(eventoAlvo.data) : "sem data";
+    const clienteTexto = eventoAlvo.nome || "cliente sem nome";
+
+    const ok = confirm(
+      `Excluir SOMENTE este evento/serviço?\n\nCliente: ${clienteTexto}\nEvento/serviço: ${titulo}\nData: ${dataTexto}\n\nO cliente e os outros eventos deste cliente continuarão salvos.`
+    );
+    if (!ok) return;
+
+    const confirmarTexto = prompt(
+      `Para confirmar a exclusão somente deste evento/serviço, digite: EXCLUIR\n\n${clienteTexto} - ${dataTexto}`
+    );
+    if (String(confirmarTexto || "").trim().toUpperCase() !== "EXCLUIR") {
+      alert("Exclusão cancelada. Nada foi apagado.");
+      return;
+    }
+
+    setEventos((lista) => lista.filter((e) => e.id !== id));
+
+    const movimentosRelacionados = movimentosCaixa.filter((m) => m.eventoId === id);
+    if (movimentosRelacionados.length > 0) {
+      const limparCaixa = confirm(
+        `Este evento/serviço tem ${movimentosRelacionados.length} lançamento(s) de caixa vinculado(s).\n\nDeseja remover também esses lançamentos do caixa?`
+      );
+      if (limparCaixa) {
+        setMovimentosCaixa((lista) => lista.filter((m) => m.eventoId !== id));
+      }
+    }
+
+    setEventoExpandidoId(null);
+    setEventoAbertoLista(null);
+    alert("Evento/serviço excluído. O cliente foi mantido.");
   };
 
   const editarEvento = (evento) => {
@@ -2187,7 +2345,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       obs: juntarObservacoesJP(observacoesInternasJP(evento), observacoesExtrasJP(evento))
     });
     setEditandoId(evento.id);
-    setAba("cadastro");
+    setAba("servico");
   };
 
   const toggleExecutado = (id) => {
@@ -2258,7 +2416,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     const mensagem =
       typeof evento === "string"
         ? "Olá! Tudo bem?"
-        : `Olá, ${evento.nome}! Tudo bem? Passando para falar sobre o evento ${evento.tipoEvento} marcado para ${dataCurtaBR(evento.data)} às ${evento.horaInicio || "horário combinado"}.`;
+        : `Olá, ${evento.nome}! Tudo bem? Passando para falar sobre o evento ${evento.tipoEvento}${evento.servicosTexto ? ` | ${evento.servicosTexto}` : ""} marcado para ${dataCurtaBR(evento.data)} às ${evento.horaInicio || "horário combinado"}.`;
 
     window.open(`https://wa.me/${numeroLimpo}?text=${encodeURIComponent(mensagem)}`, "_blank");
   };
@@ -2301,7 +2459,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       "",
       "Estou passando por aqui para falar sobre seu evento.",
       evento?.data ? `📅 Data: ${dataCurtaBR(evento.data)}` : "",
-      evento?.tipoEvento ? `🎉 Evento: ${evento.tipoEvento}` : "",
+      evento?.tipoEvento ? `🎉 Evento: ${evento.tipoEvento}${evento.servicosTexto ? ` | ${evento.servicosTexto}` : ""}` : "",
       "",
       "Pode me confirmar se está tudo certo por aí?"
     ].filter(Boolean).join("\n");
@@ -2496,10 +2654,10 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     const horaFim = (evento.horaFim || "13:00").replace("h", ":").replace(/\D/g, "").padEnd(4, "0");
     const dataInicio = `${data}T${horaInicio}00`;
     const dataFim = `${data}T${horaFim}00`;
-    const titulo = `${textoStatusCurto(evento)} - ${evento.nome} - ${evento.tipoEvento}`;
-    const total = Number(evento.valor || 0);
-    const entrada = Number(evento.entrada || 0);
-    const pendente = Math.max(total - entrada, 0);
+    const titulo = `${textoStatusCurto(evento)} - ${evento.nome} - ${evento.tipoEvento}${evento.servicosTexto ? ` | ${evento.servicosTexto}` : ""}`;
+    const total = valorNumericoJP(evento.valor);
+    const entrada = valorNumericoJP(evento.entrada);
+    const pendente = eventoQuitadoJP(evento) ? 0 : saldoPendenteEventoJP(evento);
     const avisoAgenda = reservaConfirmada(evento)
       ? "✅ EVENTO CONFIRMADO: cliente fechado."
       : temSinal(evento)
@@ -2510,7 +2668,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       "",
       `Cliente: ${evento.nome}`,
       `WhatsApp: ${evento.whatsapp}`,
-      `Pacote: ${evento.pacote === "Outro" ? evento.pacotePersonalizado : evento.pacote}`,
+      `Serviços: ${evento.servicosTexto || (evento.pacote === "Outro" ? evento.pacotePersonalizado : evento.pacote) || "a definir"}`,
       `Valor total: ${moeda(total)}`,
       `Sinal/entrada: ${moeda(entrada)}`,
       `Saldo pendente: ${moeda(pendente)}`,
@@ -3351,10 +3509,65 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
 
   const resumoFinanceiroEvento = (evento) => {
     const movs = movimentosDoEvento(evento);
-    const entradas = movs.filter((m) => m.tipo === "entrada").reduce((acc, m) => acc + Number(m.valor || 0), 0);
-    const saidas = movs.filter((m) => m.tipo === "saida").reduce((acc, m) => acc + Number(m.valor || 0), 0);
+    const entradas = movs.filter((m) => m.tipo === "entrada").reduce((acc, m) => acc + valorNumericoJP(m.valor), 0);
+    const saidas = movs.filter((m) => m.tipo === "saida").reduce((acc, m) => acc + valorNumericoJP(m.valor), 0);
     return { movs, entradas, saidas, saldo: entradas - saidas };
   };
+
+  const saldoPendenteEventoJP = (evento = {}) => {
+    const total = valorNumericoJP(evento.valor);
+    const entrada = valorNumericoJP(evento.entrada);
+    const resumoCx = resumoFinanceiroEvento(evento);
+    const recebidoReal = Math.max(entrada, resumoCx.entradas || 0);
+    if (evento.quitado || (total > 0 && recebidoReal >= total)) return 0;
+    return Math.max(total - recebidoReal, 0);
+  };
+
+  const eventoQuitadoJP = (evento = {}) => {
+    const total = valorNumericoJP(evento.valor);
+    return Boolean(evento.quitado) || (total > 0 && saldoPendenteEventoJP(evento) <= 0);
+  };
+
+  const usarDataNoCadastroSeguro = (dataAlvo) => {
+    const dataSegura = String(dataAlvo || "").trim();
+    if (!dataSegura) {
+      alert("Escolha uma data primeiro.");
+      return;
+    }
+    setForm((atual) => ({ ...(atual || formInicial), data: dataSegura }));
+    setDataConsultaAgenda("");
+    if (aba !== "servico") setAba("cadastro");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const chaveClienteJP = (evento = {}) =>
+    normalizarTexto(evento.whatsapp || evento.cpf || evento.nome || "cliente-sem-chave");
+
+  const clientesAgrupadosJP = Object.values(
+    eventos.reduce((acc, ev) => {
+      const chave = chaveClienteJP(ev);
+      if (!acc[chave]) acc[chave] = {
+        chave,
+        nome: ev.nome || "Cliente sem nome",
+        whatsapp: ev.whatsapp || "",
+        cpf: ev.cpf || "",
+        endereco: ev.endereco || "",
+        cidade: ev.cidade || "",
+        bairro: ev.bairro || "",
+        eventos: [],
+        total: 0,
+        pendente: 0,
+        recebido: 0
+      };
+      if (!ev.clienteOnly) {
+        acc[chave].eventos.push(ev);
+        acc[chave].total += valorNumericoJP(ev.valor);
+        acc[chave].pendente += saldoPendenteEventoJP(ev);
+        acc[chave].recebido += resumoFinanceiroEvento(ev).entradas || (eventoQuitadoJP(ev) ? valorNumericoJP(ev.valor) : valorNumericoJP(ev.entrada));
+      }
+      return acc;
+    }, {})
+  ).sort((a, b) => b.eventos.length - a.eventos.length || String(a.nome).localeCompare(String(b.nome)));
 
   const salvarPagamentoEvento = () => {
     if (!pagamentoEvento) return;
@@ -3692,7 +3905,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   };
 
   const agendaOrdenada = useMemo(() => {
-    return [...eventos].sort((a, b) => {
+    return [...eventos].filter((e) => !e.clienteOnly).sort((a, b) => {
       const dataA = `${a.data || "9999-12-31"} ${a.horaInicio || "00:00"}`;
       const dataB = `${b.data || "9999-12-31"} ${b.horaInicio || "00:00"}`;
       return new Date(dataA) - new Date(dataB);
@@ -3731,7 +3944,11 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     if (!evento) return;
     setBusca(evento.nome || evento.whatsapp || evento.tipoEvento || "");
     setFiltroStatus("todos");
+    setEventoExpandidoId(evento.id);
+    setModoEventosExpandido(false);
+    setTituloListaAberta("Resultado da busca");
     setAba("eventos");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const confirmarFechamentoSemSinal = (evento) => {
@@ -3775,8 +3992,8 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     setEventos((lista) => lista.filter((item) => item.id !== evento.id));
   };
 
-  const eventosNaMesmaData = form.data ? eventos.filter((e) => e.data === form.data && e.id !== editandoId) : [];
-  const eventosNaDataConsulta = dataConsultaAgenda ? eventos.filter((e) => e.data === dataConsultaAgenda && e.id !== editandoId) : [];
+  const eventosNaMesmaData = form.data ? eventos.filter((e) => !e.clienteOnly && e.data === form.data && e.id !== editandoId) : [];
+  const eventosNaDataConsulta = dataConsultaAgenda ? eventos.filter((e) => !e.clienteOnly && e.data === dataConsultaAgenda && e.id !== editandoId) : [];
 
   const consultarEventosDaData = (dataAlvo = form.data) => {
     if (!dataAlvo) {
@@ -3789,6 +4006,9 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     setBusca(dataAlvo);
     setFiltroStatus("todos");
     setVoltarCadastroPendente(true);
+    setEventoExpandidoId(null);
+    setModoEventosExpandido(false);
+    setTituloListaAberta(`Eventos da data ${dataCurtaBR(dataAlvo)}`);
     setAba("eventos");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -3799,7 +4019,9 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const listaFiltrada = eventos.filter((e) => {
+  const eventosOperacionais = eventos.filter((e) => !e.clienteOnly);
+
+  const listaFiltrada = eventosOperacionais.filter((e) => {
     const texto = normalizarTexto(busca);
     const statusPagamento = ehPreCadastro(e)
       ? "pre reserva pré reserva pre cadastro pré cadastro data reservada reserva"
@@ -3836,29 +4058,27 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     return passouBusca && passouFiltro;
   });
 
-  const totalRecebido = eventos.filter((e) => e.quitado).reduce((acc, e) => acc + Number(e.valor || 0), 0);
-  const totalEntradas = eventos.reduce((acc, e) => acc + Number(e.entrada || 0), 0);
-  const totalPendente = eventos
-    .filter((e) => !e.quitado)
-    .reduce((acc, e) => acc + Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0), 0);
-  const eventosPagos = eventos.filter((e) => e.quitado).length;
-  const eventosPendentes = eventos.filter((e) => !ehPreCadastro(e) && !e.quitado).length;
-  const eventosPreReserva = eventos.filter((e) => ehPreCadastro(e)).length;
-  const faturamentoTotal = eventos.reduce((acc, e) => acc + Number(e.valor || 0), 0);
+  const totalRecebido = eventosOperacionais.filter((e) => e.quitado).reduce((acc, e) => acc + Number(e.valor || 0), 0);
+  const totalEntradas = eventosOperacionais.reduce((acc, e) => acc + Number(e.entrada || 0), 0);
+  const totalPendente = eventosOperacionais.reduce((acc, e) => acc + saldoPendenteEventoJP(e), 0);
+  const eventosPagos = eventosOperacionais.filter((e) => e.quitado).length;
+  const eventosPendentes = eventosOperacionais.filter((e) => !ehPreCadastro(e) && !e.quitado).length;
+  const eventosPreReserva = eventosOperacionais.filter((e) => ehPreCadastro(e)).length;
+  const faturamentoTotal = eventosOperacionais.reduce((acc, e) => acc + Number(e.valor || 0), 0);
 
-  const custoTotal = eventos.reduce((acc, e) => acc + valorNumericoJP(e.custo), 0);
+  const custoTotal = eventosOperacionais.reduce((acc, e) => acc + valorNumericoJP(e.custo), 0);
   const lucroTotal = faturamentoTotal - custoTotal;
-  const sinaisRecebidos = eventos.reduce((acc, e) => acc + Number(e.entrada || 0), 0);
+  const sinaisRecebidos = eventosOperacionais.reduce((acc, e) => acc + Number(e.entrada || 0), 0);
   const faturamentoFuturo = eventosFuturos.reduce((acc, e) => acc + Number(e.valor || 0), 0);
-  const saldoReceberFuturo = eventosFuturos.reduce((acc, e) => acc + (e.quitado ? 0 : Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0)), 0);
-  const faturamentoMesAgenda = eventos
+  const saldoReceberFuturo = eventosFuturos.reduce((acc, e) => acc + saldoPendenteEventoJP(e), 0);
+  const faturamentoMesAgenda = eventosOperacionais
     .filter((e) => {
       if (!e.data) return false;
       const [ano, mes] = e.data.split("-").map(Number);
       return ano === hoje.getFullYear() && mes - 1 === hoje.getMonth();
     })
     .reduce((acc, e) => acc + Number(e.valor || 0), 0);
-  const custosMesAgenda = eventos
+  const custosMesAgenda = eventosOperacionais
     .filter((e) => {
       if (!e.data) return false;
       const [ano, mes] = e.data.split("-").map(Number);
@@ -3866,22 +4086,22 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     })
     .reduce((acc, e) => acc + valorNumericoJP(e.custo), 0);
   const lucroMesEstimado = faturamentoMesAgenda - custosMesAgenda;
-  const ticketMedio = eventos.filter((e) => reservaConfirmada(e)).length > 0
-    ? faturamentoTotal / eventos.filter((e) => reservaConfirmada(e)).length
+  const ticketMedio = eventosOperacionais.filter((e) => reservaConfirmada(e)).length > 0
+    ? faturamentoTotal / eventosOperacionais.filter((e) => reservaConfirmada(e)).length
     : 0;
-  const totalPropostas = eventos.filter((e) => ehPreCadastro(e)).length;
-  const totalFechados = eventos.filter((e) => reservaConfirmada(e)).length;
-  const taxaConversao = eventos.length > 0 ? Math.round((totalFechados / eventos.length) * 100) : 0;
+  const totalPropostas = eventosOperacionais.filter((e) => ehPreCadastro(e)).length;
+  const totalFechados = eventosOperacionais.filter((e) => reservaConfirmada(e)).length;
+  const taxaConversao = eventosOperacionais.length > 0 ? Math.round((totalFechados / eventosOperacionais.length) * 100) : 0;
   const metaMensalNumero = Number(metaMensal || 0);
   const percentualMetaMensal = metaMensalNumero > 0 ? Math.min(100, Math.round((faturamentoMesAgenda / metaMensalNumero) * 100)) : 0;
   const margemLucroTotal = faturamentoTotal > 0 ? Math.round((lucroTotal / faturamentoTotal) * 100) : 0;
   const margemLucroMes = faturamentoMesAgenda > 0 ? Math.round((lucroMesEstimado / faturamentoMesAgenda) * 100) : 0;
-  const caixaRealRecebido = totalRecebido + eventos.filter((e) => !e.quitado).reduce((acc, e) => acc + Number(e.entrada || 0), 0);
+  const caixaRealRecebido = totalRecebido + eventosOperacionais.filter((e) => !e.quitado).reduce((acc, e) => acc + Number(e.entrada || 0), 0);
   const lucroRealEstimado = caixaRealRecebido - custoTotal;
-  const eventosComLucroRuim = eventos.filter((e) => valorNumericoJP(e.valor) > 0 && valorNumericoJP(e.custo) > valorNumericoJP(e.valor) * 0.55);
+  const eventosComLucroRuim = eventosOperacionais.filter((e) => valorNumericoJP(e.valor) > 0 && valorNumericoJP(e.custo) > valorNumericoJP(e.valor) * 0.55);
 
   const rankingClientes = Object.values(
-    eventos.reduce((acc, e) => {
+    eventosOperacionais.reduce((acc, e) => {
       const chave = normalizarTexto(e.nome || "Cliente sem nome");
       if (!acc[chave]) {
         acc[chave] = { nome: e.nome || "Cliente sem nome", qtd: 0, total: 0, fechados: 0 };
@@ -4008,14 +4228,16 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     );
   };
 
-  const CardEvento = ({ e }) => {
-    const total = Number(e.valor || 0);
-    const entrada = Number(e.entrada || 0);
-    const pendente = e.quitado ? 0 : Math.max(total - entrada, 0);
+  const CardEvento = ({ e, onVoltar = null }) => {
+    const total = valorNumericoJP(e.valor);
+    const entrada = valorNumericoJP(e.entrada);
+    const pendente = saldoPendenteEventoJP(e);
     const lucro = total - valorNumericoJP(e.custo);
 
     return (
       <div style={{ ...estilos.card, borderColor: corStatus(e) }}>
+        {onVoltar && <button style={estilos.botaoRoxo} onClick={onVoltar}>← Voltar para lista</button>}
+        <button style={estilos.botao} onClick={() => abrirClienteDoEvento(e, aba || "eventos")}>👤 Abrir cliente</button>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
           <div>
             <strong style={{ color: e.executado ? "#86efac" : "white", fontSize: 20 }}>{e.nome}</strong>
@@ -4066,13 +4288,15 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
           })()}
         </div>
 
-        <div style={estilos.grupoAcoes}>
-          <div style={estilos.tituloGrupo}>Caixa financeiro do cliente</div>
-          <button style={{ ...estilos.botaoPequeno, background: "#ca8a04", color: "white" }} onClick={() => abrirRegistroPagamentoEvento(e, "entrada")}>+ Entrada / sinal</button>
-          <button style={{ ...estilos.botaoPequeno, background: "#16a34a", color: "white" }} onClick={() => abrirRegistroPagamentoEvento(e, "total")}>+ Pagamento total / saldo</button>
-          <button style={{ ...estilos.botaoPequeno, background: "#991b1b", color: "white" }} onClick={() => abrirDespesaDoEvento(e)}>+ Despesa do evento</button>
-          <button style={{ ...estilos.botaoPequeno, background: "#2563eb", color: "white" }} onClick={() => abrirFinanceiroDoCliente(e)}>Ver financeiro do cliente</button>
-        </div>
+        <details style={{ ...estilos.cardClaro, marginTop: 10 }}>
+          <summary style={{ cursor: "pointer", color: "#facc15", fontWeight: 900 }}>💰 Caixa financeira do cliente</summary>
+          <div style={estilos.grupoAcoes}>
+            <button style={{ ...estilos.botaoPequeno, background: "#ca8a04", color: "white" }} onClick={() => abrirRegistroPagamentoEvento(e, "entrada")}>+ Entrada / sinal</button>
+            <button style={{ ...estilos.botaoPequeno, background: "#16a34a", color: "white" }} onClick={() => abrirRegistroPagamentoEvento(e, "total")}>+ Pagamento total / saldo</button>
+            <button style={{ ...estilos.botaoPequeno, background: "#991b1b", color: "white" }} onClick={() => abrirDespesaDoEvento(e)}>+ Despesa do evento</button>
+            <button style={{ ...estilos.botaoPequeno, background: "#2563eb", color: "white" }} onClick={() => abrirFinanceiroDoCliente(e)}>Ver financeiro do cliente</button>
+          </div>
+        </details>
 
         {e.obs && (
           <details style={{ marginTop: 10 }}>
@@ -4092,31 +4316,36 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
           </details>
         )}
 
-        <div style={estilos.grupoAcoes}>
-          <div style={estilos.tituloGrupo}>Documentos</div>
-          <button style={estilos.botaoRoxo} onClick={() => gerarProposta(e)}>Proposta PDF</button>
-          <button style={estilos.botaoPequeno} onClick={() => gerarContrato(e)}>Contrato</button>
-          <button style={estilos.botaoPequeno} onClick={() => abrirRecibo(e)}>Recibo</button>
-          <button style={estilos.botaoRoxo} onClick={() => fecharComCliente(e)}>Fechar com cliente</button>
-        </div>
+        <details style={{ ...estilos.cardClaro, marginTop: 10 }}>
+          <summary style={{ cursor: "pointer", color: "#c4b5fd", fontWeight: 900 }}>📄 Documentos</summary>
+          <div style={estilos.grupoAcoes}>
+            <button style={estilos.botaoRoxo} onClick={() => gerarProposta(e)}>Proposta PDF</button>
+            <button style={estilos.botaoPequeno} onClick={() => gerarContrato(e)}>Contrato</button>
+            <button style={estilos.botaoPequeno} onClick={() => abrirRecibo(e)}>Recibo</button>
+            <button style={estilos.botaoRoxo} onClick={() => fecharComCliente(e)}>Fechar com cliente</button>
+          </div>
+        </details>
 
-        <div style={estilos.grupoAcoes}>
-          <div style={estilos.tituloGrupo}>WhatsApp</div>
-          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsApp(e)}>Abrir conversa</button>
-          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppCobrarSinal(e)}>Cobrar sinal</button>
-          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppLembrarPagamento(e)}>Lembrar pagamento</button>
-          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppConfirmarEvento(e)}>Confirmar evento</button>
-          <button style={estilos.botaoRoxo} onClick={() => abrirWhatsAppProposta(e)}>Enviar proposta</button>
-          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppPersonalizado(e)}>Mensagem livre</button>
-          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppModelo(e, "followup", "Follow-up inteligente")}>Follow-up</button>
-          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppModelo(e, "urgente", "Última chamada da data")}>Última chamada</button>
-          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppModelo(e, "posEvento", "Pós-evento / feedback")}>Pós-evento</button>
-          <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppModelo(e, "indicacao", "Pedido de indicação")}>Indicação</button>
-          <button style={estilos.botaoPequeno} onClick={() => { navigator.clipboard.writeText(mensagemComPreco(e)); alert("Mensagem profissional copiada!"); }}>Copiar proposta</button>
-        </div>
+        <details style={{ ...estilos.cardClaro, marginTop: 10 }}>
+          <summary style={{ cursor: "pointer", color: "#22c55e", fontWeight: 900 }}>💬 WhatsApp</summary>
+          <div style={estilos.grupoAcoes}>
+            <button style={estilos.botaoPequeno} onClick={() => abrirWhatsApp(e)}>Abrir conversa</button>
+            <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppCobrarSinal(e)}>Cobrar sinal</button>
+            <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppLembrarPagamento(e)}>Lembrar pagamento</button>
+            <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppConfirmarEvento(e)}>Confirmar evento</button>
+            <button style={estilos.botaoRoxo} onClick={() => abrirWhatsAppProposta(e)}>Enviar proposta</button>
+            <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppPersonalizado(e)}>Mensagem livre</button>
+            <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppModelo(e, "followup", "Follow-up inteligente")}>Follow-up</button>
+            <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppModelo(e, "urgente", "Última chamada da data")}>Última chamada</button>
+            <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppModelo(e, "posEvento", "Pós-evento / feedback")}>Pós-evento</button>
+            <button style={estilos.botaoPequeno} onClick={() => abrirWhatsAppModelo(e, "indicacao", "Pedido de indicação")}>Indicação</button>
+            <button style={estilos.botaoPequeno} onClick={() => { navigator.clipboard.writeText(mensagemComPreco(e)); alert("Mensagem profissional copiada!"); }}>Copiar proposta</button>
+          </div>
+        </details>
 
-        <div style={estilos.grupoAcoes}>
-          <div style={estilos.tituloGrupo}>Gestão</div>
+        <details style={{ ...estilos.cardClaro, marginTop: 10 }}>
+          <summary style={{ cursor: "pointer", color: "#93c5fd", fontWeight: 900 }}>⚙️ Gestão</summary>
+          <div style={estilos.grupoAcoes}>
           <button style={estilos.botaoPequeno} onClick={() => abrirGoogleAgenda(e)}>📅 Google Agenda</button>
           <button style={estilos.botaoPequeno} onClick={() => { navigator.clipboard.writeText(textoCompleto(e)); alert("Cadastro copiado!"); }}>Copiar cadastro</button>
           <button style={estilos.botaoPequeno} onClick={() => editarEvento(e)}>✏️ Editar</button>
@@ -4126,8 +4355,9 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
           <button style={estilos.botaoPequeno} onClick={() => setEventos((lista) => lista.map((ev) => (ev.id === e.id ? { ...ev, status: "confirmado", historico: [criarRegistroHistorico("Reserva confirmada", "Status alterado manualmente"), ...(Array.isArray(ev.historico) ? ev.historico : [])].slice(0, 50) } : ev)))}>Confirmar reserva</button>
           <button style={{ ...estilos.botaoPequeno, background: "#92400e" }} onClick={() => liberarData(e)}>Liberar data</button>
           <button style={estilos.botaoPequeno} onClick={() => toggleExecutado(e.id)}>{e.executado ? "✔ Executado" : "Marcar executado"}</button>
-          <button style={{ ...estilos.botaoPequeno, background: "#991b1b" }} onClick={() => excluirEvento(e.id)}>Excluir</button>
-        </div>
+          <button style={{ ...estilos.botaoPequeno, background: "#991b1b" }} onClick={() => excluirEvento(e.id)}>🗑️ Excluir somente este evento/serviço</button>
+          </div>
+        </details>
       </div>
     );
   };
@@ -4142,10 +4372,139 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     setForm((atual) => ({ ...atual, custo: valorLimpo }));
   };
 
+  const selecionarAbaMenu = (id) => {
+    setNavegacaoAnterior(null);
+    setVoltarCadastroPendente(false);
+    setBusca("");
+    setEventoExpandidoId(null);
+    setModoEventosExpandido(false);
+    setTituloListaAberta("");
+    setOrigemTelaAnterior(null);
+    setAba((atual) => (atual === id ? "" : id));
+    setMenuAberto(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const voltarParaInicio = () => {
+    setAba("");
+    setBusca("");
+    setVoltarCadastroPendente(false);
+    setEventoExpandidoId(null);
+    setModoEventosExpandido(false);
+    setTituloListaAberta("");
+    setOrigemTelaAnterior(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const abrirClienteDoEvento = (evento, origem = "eventos") => {
+    const chave = normalizarTexto(evento?.whatsapp || evento?.nome || "");
+    setClienteAbertoChave(chave);
+    setOrigemTelaAnterior(origem);
+    setAba("clientes");
+    setMenuAberto(false);
+    setTimeout(() => document.getElementById(`cliente-${chave}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+  };
+
+  const novoEventoServicoParaCliente = (cliente, origem = "clientes") => {
+    setOrigemTelaAnterior(origem);
+    setEditandoId(null);
+    setForm({
+      ...formInicial,
+      nome: cliente?.nome || "",
+      whatsapp: cliente?.whatsapp || "",
+      cpf: cliente?.cpf || "",
+      endereco: cliente?.endereco || "",
+      cidade: cliente?.cidade || "",
+      bairro: cliente?.bairro || "",
+      servicosTexto: "",
+      obsInternas: `Novo evento/serviço para cliente já cadastrado: ${cliente?.nome || ""}`
+    });
+    setAba("servico");
+    setMenuAberto(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const voltarTelaAnteriorSegura = () => {
+    if (origemTelaAnterior) {
+      setAba(origemTelaAnterior);
+      setOrigemTelaAnterior(null);
+    } else {
+      setAba("clientes");
+    }
+    setEventoExpandidoId(null);
+    setModoEventosExpandido(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const abrirEventoDaLista = (evento, titulo = "Lista de eventos") => {
+    setEventoExpandidoId((atual) => (atual === evento.id ? null : evento.id));
+    setModoEventosExpandido(false);
+    setTituloListaAberta(titulo);
+    setTimeout(() => document.getElementById(`evento-expandido-${evento.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+  };
+
+  const voltarParaListaCompacta = () => {
+    setEventoExpandidoId(null);
+    setModoEventosExpandido(false);
+    setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 30);
+  };
+
+  const resumoLinhaEvento = (ev) => {
+    const horario = normalizarHorarioManual(ev.horaInicio) || ev.horaInicio || "horário não informado";
+    const status = eventoQuitadoJP(ev) ? "Quitado" : `Pendente ${moeda(saldoPendenteEventoJP(ev))}`;
+    return `${dataBR(ev.data)} - ${horario} | ${ev.nome || "Cliente"} | ${ev.tipoEvento || "Evento/serviço"} | ${status}`;
+  };
+
+  const renderListaEventosCompacta = (titulo, lista, opcoes = {}) => {
+    const eventosLista = Array.isArray(lista) ? lista : [];
+    const eventoAberto = eventosLista.find((ev) => ev.id === eventoExpandidoId);
+    const tituloFinal = tituloListaAberta || titulo;
+
+    return (
+      <div style={estilos.card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <h3 style={{ margin: 0 }}>{titulo}</h3>
+          <div>
+            {opcoes.mostrarVoltarCadastro && (
+              <button style={estilos.botaoRoxo} onClick={voltarParaCadastroEmAndamento}>← Voltar ao cadastro em andamento</button>
+            )}
+            <button style={modoEventosExpandido ? estilos.botaoRoxo : estilos.botao} onClick={() => { setModoEventosExpandido(!modoEventosExpandido); setEventoExpandidoId(null); }}>
+              {modoEventosExpandido ? "Voltar para lista" : "Ver todos em card grande"}
+            </button>
+          </div>
+        </div>
+        <p style={{ color: "#c4b5fd" }}>Padrão em lista. Clique em uma linha para abrir o card completo; clique de novo ou use voltar para fechar.</p>
+
+        {eventosLista.length === 0 && <p>Nenhum evento encontrado.</p>}
+
+        {!modoEventosExpandido && !eventoAberto && eventosLista.map((ev) => (
+          <button
+            key={ev.id}
+            style={{ ...estilos.botao, display: "block", width: "100%", textAlign: "left", marginBottom: 6 }}
+            onClick={() => abrirEventoDaLista(ev, titulo)}
+          >
+            {resumoLinhaEvento(ev)}
+          </button>
+        ))}
+
+        {!modoEventosExpandido && eventoAberto && (
+          <div id={`evento-expandido-${eventoAberto.id}`}>
+            <button style={estilos.botaoRoxo} onClick={voltarParaListaCompacta}>← Voltar para {tituloFinal}</button>
+            <CardEvento e={eventoAberto} onVoltar={voltarParaListaCompacta} />
+          </div>
+        )}
+
+        {modoEventosExpandido && eventosLista.map((ev) => (
+          <CardEvento key={ev.id} e={ev} onVoltar={() => setModoEventosExpandido(false)} />
+        ))}
+      </div>
+    );
+  };
+
   return (
-    <div style={estilos.pagina}>
+    <div style={estilos.pagina} translate="no">
       <h1 style={estilos.titulo}>JP Eventos Pro</h1>
-      <p style={estilos.subtitulo}>Sistema completo com eventos, contratos, recibos, atalhos por cliente, caixa por contas/bancos, forma de pagamento separada, cartão parcelado até 12x e calendário financeiro.</p>
+      <p style={estilos.subtitulo}>Sistema completo com eventos, contratos, recibos, atalhos por cliente, caixa por contas/bancos, forma de pagamento separada, cartão parcelado até 12x e calendário financeiro. v26.6 exclusão segura: apagar somente evento/serviço sem apagar cliente.</p>
 
       <input
         placeholder="Buscar por cliente, data, status, cidade, pacote..."
@@ -4160,9 +4519,9 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       <div style={{ marginBottom: 20 }}>
         <button
           style={estilos.botaoRoxo}
-          onClick={() => setMenuAberto(!menuAberto)}
+          onClick={() => setMenuAberto((aberto) => !aberto)}
         >
-          ☰ Menu
+          {menuAberto ? "▲ Fechar menu" : "☰ Menu"}
         </button>
 
         {menuAberto && (
@@ -4170,6 +4529,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             {[
               ["cadastro", "Cadastro"],
               ["eventos", "Eventos"],
+              ["clientes", "Clientes"],
               ["agenda", "Agenda"],
               ["dashboard", "Painel"],
               ["financeiro", "Financeiro"],
@@ -4177,19 +4537,19 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             ].map(([id, nome]) => (
               <button
                 key={id}
-                onClick={() => {
-                  setNavegacaoAnterior(null);
-                  setAba(aba === id ? "" : id);
-                  setMenuAberto(false);
-                }}
-                style={estilos.botao}
+                onClick={() => selecionarAbaMenu(id)}
+                style={aba === id ? estilos.botaoRoxo : estilos.botao}
               >
-                {nome}
+                {aba === id ? "▼ " : "▶ "}{nome}
               </button>
             ))}
           </div>
         )}
       </div>
+
+      {aba !== "" && (
+        <button style={{ ...estilos.botao, marginBottom: 12 }} onClick={aba === "servico" ? voltarTelaAnteriorSegura : voltarParaInicio}>← {aba === "servico" ? "Voltar para cliente/lista" : "Voltar para tela inicial"}</button>
+      )}
 
       {aba === "config" && (
         <>
@@ -4277,20 +4637,32 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             <div style={estilos.card}>
               <h3>🔥 Próximo evento</h3>
               <p>Nenhum evento futuro cadastrado ainda.</p>
-              <button style={estilos.botaoRoxo} onClick={() => setAba("cadastro")}>Cadastrar evento</button>
+              <button style={estilos.botaoRoxo} onClick={() => setAba("cadastro")}>Cadastrar cliente</button>
             </div>
           )}
 
-          <div style={estilos.card}>
-            <h3>💰 Financeiro rápido</h3>
-            <div style={estilos.miniInfo}>
+          {eventosFuturos.slice(1, 4).length > 0 && (
+            <div style={estilos.card}>
+              <h3>📌 Próximos 3 eventos</h3>
+              {eventosFuturos.slice(1, 4).map((ev) => (
+                <button key={ev.id} style={{ ...estilos.botao, display: "block", width: "100%", textAlign: "left" }} onClick={() => abrirEventoRapido(ev)}>
+                  {dataBR(ev.data)} - {normalizarHorarioManual(ev.horaInicio) || ev.horaInicio || "horário"} | {ev.nome} | {ev.tipoEvento} | {eventoQuitadoJP(ev) ? "Quitado" : `Pendente ${moeda(saldoPendenteEventoJP(ev))}`}
+                </button>
+              ))}
+              <button style={estilos.botaoRoxo} onClick={() => { setEventoExpandidoId(null); setModoEventosExpandido(false); setAba("agenda"); }}>Ver todos os próximos eventos</button>
+            </div>
+          )}
+
+          <details style={estilos.card}>
+            <summary style={{ cursor: "pointer", fontWeight: 900, color: "#c4b5fd" }}>💰 Financeiro rápido</summary>
+            <div style={{ ...estilos.miniInfo, marginTop: 10 }}>
               <div style={{ ...estilos.linhaInfo, borderColor: "#22c55e", color: "#22c55e" }}><strong>Recebido</strong><br />{moeda(totalRecebido)}</div>
               <div style={{ ...estilos.linhaInfo, borderColor: "#ef4444", color: "#ef4444" }}><strong>Pendente</strong><br />{moeda(totalPendente)}</div>
               <div style={estilos.linhaInfo}><strong>Lucro estimado</strong><br />{moeda(lucroTotal)}</div>
               <div style={estilos.linhaInfo}><strong>Meta do mês</strong><br />{percentualMetaMensal}%</div>
             </div>
             <button style={estilos.botaoRoxo} onClick={() => setAba("financeiro")}>Abrir financeiro completo</button>
-          </div>
+          </details>
         </>
       )}
 
@@ -4304,9 +4676,14 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
         </div>
       )}
 
-      {aba === "cadastro" && (
+      {(aba === "cadastro" || aba === "servico") && (
         <>
-          <h2>{editandoId ? "Editar cadastro" : "Novo cadastro"}</h2>
+          <div style={{ ...estilos.card, borderColor: aba === "servico" ? "#22c55e" : "#38bdf8" }}>
+            <h2>{aba === "servico" ? "Novo evento / serviço para cliente" : "Cadastro inicial"}</h2>
+            <p style={{ color: "#c4b5fd" }}>{aba === "servico" ? "Cliente já cadastrado. Esta tela é só para criar novo evento/serviço deste cliente, com data, pacote, valores, pagamento e agenda." : "Use esta área para o primeiro contato. Depois o cliente fica organizado na aba Clientes."}</p>
+            {aba === "servico" && <button style={estilos.botao} onClick={voltarTelaAnteriorSegura}>← Voltar sem salvar</button>}
+          </div>
+          <h2>{aba === "servico" ? "Novo evento / serviço" : (editandoId ? "Editar cadastro" : "Novo cadastro")}</h2>
 
           <div style={{ ...estilos.card, borderColor: dataConsultaAgenda && eventosNaDataConsulta.length > 0 ? "#f59e0b" : "#38bdf8", background: dataConsultaAgenda && eventosNaDataConsulta.length > 0 ? "rgba(58,46,0,0.35)" : "rgba(14,165,233,0.10)" }}>
             <h3 style={{ marginTop: 0 }}>📅 Consultar data antes de cadastrar</h3>
@@ -4336,8 +4713,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
                 <button
                   style={estilos.botao}
                   onClick={() => {
-                    setForm({ ...form, data: dataConsultaAgenda });
-                    setDataConsultaAgenda("");
+                    usarDataNoCadastroSeguro(dataConsultaAgenda);
                   }}
                 >
                   Usar essa data no cadastro
@@ -4346,6 +4722,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             )}
           </div>
 
+          {aba === "cadastro" && (
           <div style={{ ...estilos.card, borderColor: "#22c55e" }}>
             <h3>🤖 Importar conversa do WhatsApp</h3>
             <p>Cole aqui a resposta do cliente. O sistema tenta preencher data, horário, endereço, cidade, tipo de evento e observações.</p>
@@ -4383,18 +4760,80 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
               Limpar somente cadastro
             </button>
           </div>
+          )}
 
-          <label style={{ fontWeight: "bold" }}>NOME:</label>
-<input style={estilos.input} value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} />
+          {aba === "servico" ? (
+            <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20,83,45,0.16)" }}>
+              <h3 style={{ marginTop: 0 }}>👤 Cliente vinculado</h3>
+              <div style={estilos.miniInfo}>
+                <div style={estilos.linhaInfo}><strong>Cliente</strong><br />{form.nome || "Cliente selecionado"}</div>
+                <div style={estilos.linhaInfo}><strong>WhatsApp</strong><br />{form.whatsapp || "Não informado"}</div>
+                <div style={estilos.linhaInfo}><strong>Documento</strong><br />{form.cpf || "Não informado"}</div>
+              </div>
+              <p style={{ color: "#bbf7d0" }}>Agora preencha somente os dados do novo evento/serviço deste cliente. Não precisa cadastrar o cliente de novo.</p>
+              <button style={estilos.botao} onClick={voltarTelaAnteriorSegura}>← Voltar para cliente</button>
+            </div>
+          ) : (
+            <>
+              <label style={{ fontWeight: "bold" }}>NOME:</label>
+              <input style={estilos.input} value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} />
 
-<label style={{ fontWeight: "bold" }}>CPF / CNPJ:</label>
-<input style={estilos.input} placeholder="CPF ou CNPJ do cliente/empresa" value={form.cpf} onChange={(e) => setForm({ ...form, cpf: formatarDocumentoCliente(e.target.value) })} />
+              <label style={{ fontWeight: "bold" }}>CPF / CNPJ:</label>
+              <input style={estilos.input} placeholder="CPF ou CNPJ do cliente/empresa" value={form.cpf} onChange={(e) => setForm({ ...form, cpf: formatarDocumentoCliente(e.target.value) })} />
 
-<label style={{ fontWeight: "bold" }}>WHATSAPP:</label>
-<input style={estilos.input} value={form.whatsapp} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} />
+              <label style={{ fontWeight: "bold" }}>WHATSAPP:</label>
+              <input style={estilos.input} value={form.whatsapp} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} />
 
-<label style={{ fontWeight: "bold" }}>TIPO DE EVENTO:</label>
-<input style={estilos.input} value={form.tipoEvento} onChange={(e) => setForm({ ...form, tipoEvento: e.target.value })} />
+              <label style={{ fontWeight: "bold" }}>ENDEREÇO DO CLIENTE:</label>
+              <input style={estilos.input} value={form.endereco} onChange={(e) => setForm({ ...form, endereco: e.target.value })} />
+
+              <label style={{ fontWeight: "bold" }}>CIDADE / BAIRRO:</label>
+              <input
+                style={estilos.input}
+                placeholder="Ex: Fortaleza / João XXIII"
+                value={cidadeBairroFinal(form) === "Não informado" ? "" : cidadeBairroFinal(form)}
+                onChange={(e) => {
+                  const valor = e.target.value;
+                  const partes = valor.split(/[,/|-]/).map((p) => p.trim()).filter(Boolean);
+                  setForm({
+                    ...form,
+                    cidade: partes[0] || valor,
+                    bairro: partes.slice(1).join(" / ") || ""
+                  });
+                }}
+              />
+
+              <label style={{ fontWeight: "bold" }}>OBSERVAÇÕES DO CLIENTE:</label>
+              <textarea
+                style={estilos.textarea}
+                value={form.obsInternas ?? ""}
+                onChange={(e) => setForm({ ...form, obsInternas: e.target.value })}
+                placeholder="Observações gerais do cliente. Ex: preferência, histórico, combinado inicial..."
+              />
+
+              <button style={estilos.botaoRoxo} onClick={salvar}>Salvar cliente e abrir ficha</button>
+              <button style={estilos.botao} onClick={salvarClienteEIniciarServico}>Salvar cliente e criar evento/serviço</button>
+            </>
+          )}
+
+          {aba === "servico" && (<>
+          <div style={{ ...estilos.card, borderColor: "#38bdf8", background: "rgba(14,165,233,0.08)" }}>
+            <h3 style={{ marginTop: 0 }}>{aba === "servico" ? "🎉 Dados do novo evento / serviço" : "🎉 Dados do evento"}</h3>
+          </div>
+
+<label style={{ fontWeight: "bold" }}>TIPO DO EVENTO:</label>
+<input style={estilos.input} placeholder="Ex: aniversário de 15 anos, palestra, casamento, inauguração..." value={form.tipoEvento} onChange={(e) => setForm({ ...form, tipoEvento: e.target.value })} />
+
+<label style={{ fontWeight: "bold", color: "#22c55e" }}>SERVIÇOS CONTRATADOS:</label>
+<textarea
+  style={{ ...estilos.textarea, minHeight: 90 }}
+  placeholder="Ex: DJ + Som + Luz; Live YouTube; Telão + Projetor; Máquina de fumaça..."
+  value={form.servicosTexto || ""}
+  onChange={(e) => setForm({ ...form, servicosTexto: e.target.value })}
+/>
+<div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20,83,45,0.18)", padding: 10 }}>
+  <strong>Resumo:</strong> Evento = {form.tipoEvento || "a definir"} | Serviços = {form.servicosTexto || pegarPacoteFinal(form) || "a definir"}
+</div>
 
 <label style={{ fontWeight: "bold" }}>DATA DO EVENTO:</label>
 <input style={estilos.input} type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} />
@@ -4434,7 +4873,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
                   Ver evento(s) nessa data
                 </button>
                 <button style={estilos.botao} onClick={() => setDataConsultaAgenda(form.data)}>
-                  Usar data na consulta rápida
+Usar essa data no cadastro
                 </button>
               </div>
             </div>
@@ -4722,20 +5161,40 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             placeholder="Digite aqui observações para aparecer na proposta, contrato e recibo. Esse campo é separado das observações de cima."
           />
 
-<button style={estilos.botaoRoxo} onClick={salvar}>{editandoId ? "Salvar edição" : "Salvar"}</button>
+<button style={estilos.botaoRoxo} onClick={salvar}>{editandoId ? "Salvar edição do evento/serviço" : "Salvar novo evento/serviço"}</button>
           <button style={estilos.botao} onClick={() => abrirWhatsAppProposta(form)}>Enviar proposta no WhatsApp</button>
           <button style={estilos.botaoRoxo} onClick={() => gerarProposta({ ...form, id: editandoId || Date.now(), dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR") })}>Proposta PDF agora</button>
           <button style={estilos.botao} onClick={() => gerarContrato({ ...form, id: editandoId || Date.now(), dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR"), status: "confirmado" })}>Contrato PDF agora</button>
           <button style={estilos.botaoRoxo} onClick={() => fecharComCliente({ ...form, id: editandoId || Date.now(), dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR") })}>Fechar com cliente</button>
           {editandoId && <button style={estilos.botao} onClick={limpar}>Cancelar edição</button>}
+          </>)}
         </>
       )}
 
       {aba === "eventos" && (
         <>
-          <h2>Eventos</h2>
+          <h2>Eventos / Serviços</h2>
+          <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20,83,45,0.12)" }}>
+            <h3 style={{ marginTop: 0 }}>➕ Criar novo evento/serviço</h3>
+            <p style={{ color: "#c4b5fd" }}>Para criar um evento novo, escolha primeiro o cliente. Assim o cadastro do cliente não precisa ser repetido.</p>
+            <details>
+              <summary style={{ cursor: "pointer", fontWeight: 900, color: "#22c55e" }}>Escolher cliente para novo evento/serviço</summary>
+              <div style={{ marginTop: 10 }}>
+                {clientesAgrupadosJP.length === 0 && <p>Nenhum cliente cadastrado ainda. Vá em Cadastro para criar o primeiro cliente.</p>}
+                {clientesAgrupadosJP.map((cliente) => (
+                  <button
+                    key={cliente.chave}
+                    style={{ ...estilos.botao, display: "block", width: "100%", textAlign: "left", marginBottom: 6 }}
+                    onClick={() => novoEventoServicoParaCliente(cliente, "eventos")}
+                  >
+                    👤 {cliente.nome} | WhatsApp: {cliente.whatsapp || "não informado"} | Eventos/serviços: {cliente.eventos.length}
+                  </button>
+                ))}
+              </div>
+            </details>
+          </div>
           {voltarCadastroPendente && (
-            <div style={{ ...estilos.card, borderColor: "#38bdf8", position: "sticky", top: 8, zIndex: 20, background: "linear-gradient(135deg, rgba(14,165,233,0.22), rgba(15,23,42,0.96))" }}>
+            <div style={{ ...estilos.card, borderColor: "#38bdf8", background: "linear-gradient(135deg, rgba(14,165,233,0.22), rgba(15,23,42,0.96))" }}>
               <strong>🔎 Você está conferindo os eventos da data pesquisada.</strong>
               <p style={{ margin: "6px 0", color: "#c4b5fd" }}>Seu cadastro em andamento continua salvo. Use o botão abaixo para voltar direto para ele.</p>
               <button style={estilos.botaoRoxo} onClick={voltarParaCadastroEmAndamento}>
@@ -4770,8 +5229,40 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
 
           <p>{listaFiltrada.length} cadastro(s) encontrado(s).</p>
 
-          {listaFiltrada.length === 0 && <p>Nenhum evento encontrado.</p>}
-          {listaFiltrada.map((e) => <CardEvento key={e.id} e={e} />)}
+          {renderListaEventosCompacta(tituloListaAberta || "Eventos encontrados", listaFiltrada, { mostrarVoltarCadastro: voltarCadastroPendente })}
+        </>
+      )}
+
+      {aba === "clientes" && (
+        <>
+          <h2>Clientes</h2>
+          <p style={{ color: "#c4b5fd" }}>Aqui os clientes aparecem agrupados. Cada cliente pode ter vários eventos/serviços.</p>
+          {clientesAgrupadosJP.length === 0 && <p>Nenhum cliente salvo ainda.</p>}
+          {clientesAgrupadosJP.map((cliente) => (
+            <div id={`cliente-${cliente.chave}`} key={cliente.chave} style={{ ...estilos.card, borderColor: cliente.pendente > 0 ? "#f59e0b" : "#22c55e" }}>
+              <button style={{ ...estilos.botao, textAlign: "left", fontWeight: 900, fontSize: 18 }} onClick={() => setClienteAbertoChave((atual) => atual === cliente.chave ? null : cliente.chave)}>
+                {clienteAbertoChave === cliente.chave ? "▼" : "▶"} 👤 {cliente.nome} - {cliente.eventos.length} serviço(s)/evento(s)
+              </button>
+              {clienteAbertoChave === cliente.chave && <>
+              <div style={{ ...estilos.miniInfo, marginTop: 10 }}>
+                <div style={estilos.linhaInfo}><strong>WhatsApp</strong><br />{cliente.whatsapp || "Não informado"}</div>
+                <div style={estilos.linhaInfo}><strong>Documento</strong><br />{cliente.cpf || "Não informado"}</div>
+                <div style={{ ...estilos.linhaInfo, color: "#38bdf8" }}><strong>Total contratado</strong><br />{moeda(cliente.total)}</div>
+                <div style={{ ...estilos.linhaInfo, color: cliente.pendente > 0 ? "#ef4444" : "#22c55e" }}><strong>Pendente</strong><br />{moeda(cliente.pendente)}</div>
+              </div>
+              <div style={estilos.grupoAcoes}>
+                <button style={estilos.botaoRoxo} onClick={() => { setBusca(cliente.nome); setFiltroStatus("todos"); setEventoExpandidoId(null); setModoEventosExpandido(false); setTituloListaAberta(`Eventos/serviços de ${cliente.nome}`); setAba("eventos"); }}>Abrir eventos/serviços deste cliente</button>
+                <button style={estilos.botao} onClick={() => novoEventoServicoParaCliente(cliente, "clientes")}>+ Novo evento / serviço para este cliente</button>
+              </div>
+              {cliente.eventos.length === 0 && <p style={{ color: "#c4b5fd" }}>Cliente cadastrado sem evento ainda. Clique em + Novo evento / serviço para começar.</p>}
+              {cliente.eventos.map((ev) => (
+                <button key={ev.id} style={{ ...estilos.botao, display: "block", width: "100%", textAlign: "left" }} onClick={() => abrirEventoRapido(ev)}>
+                  {dataBR(ev.data)} - {ev.tipoEvento || "Evento"}{ev.servicosTexto ? ` | ${ev.servicosTexto}` : ""} - {moeda(ev.valor)} - {eventoQuitadoJP(ev) ? "Quitado" : `Pendente ${moeda(saldoPendenteEventoJP(ev))}`}
+                </button>
+              ))}
+              </>}
+            </div>
+          ))}
         </>
       )}
 
@@ -4805,6 +5296,8 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
                 style={estilos.botao}
                 onClick={() => {
                   setBusca(proximoEvento.nome);
+                  setEventoExpandidoId(proximoEvento.id);
+                  setTituloListaAberta("Próximo evento");
                   setAba("eventos");
                 }}
               >
@@ -4820,13 +5313,13 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
               <button style={estilos.botao} onClick={() => mudarMes(1)}>▶</button>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, textAlign: "center", marginBottom: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(7, minmax(42px, 1fr))" : "repeat(7, 1fr)", gap: isMobile ? 4 : 6, textAlign: "center", overflowX: "auto", marginBottom: 8 }}>
               {["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"].map((d) => (
                 <strong key={d} style={{ color: "#c4b5fd" }}>{d}</strong>
               ))}
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(7, minmax(42px, 1fr))" : "repeat(7, 1fr)", gap: isMobile ? 4 : 6, overflowX: "auto" }}>
               {diasCalendario.map((dia, index) => {
                 const qtd = dia ? eventosDoMes.filter((e) => Number(e.data.split("-")[2]) === dia).length : 0;
                 return (
@@ -4835,7 +5328,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
                     disabled={!dia}
                     onClick={() => setDiaSelecionado(dia)}
                     style={{
-                      minHeight: 54,
+                      minHeight: isMobile ? 44 : 54,
                       borderRadius: 8,
                       border: diaSelecionado === dia ? "2px solid white" : "1px solid #374151",
                       background: qtd > 0 ? "#6c2bd9" : "#111827",
@@ -4844,7 +5337,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
                     }}
                   >
                     <strong>{dia || "."}</strong>
-                    {qtd > 0 && <div style={{ fontSize: 12 }}>{qtd} evento(s)</div>}
+                    {qtd > 0 && <div style={{ fontSize: isMobile ? 10 : 12 }}>{qtd} evento(s)</div>}
                   </button>
                 );
               })}
@@ -4854,14 +5347,12 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
           {diaSelecionado && (
             <div style={estilos.card}>
               <h3>Eventos do dia {String(diaSelecionado).padStart(2, "0")}</h3>
-              {eventosDoDiaSelecionado.length === 0 && <p>Nenhum evento nesse dia.</p>}
-              {eventosDoDiaSelecionado.map((e) => <CardEvento key={e.id} e={e} />)}
+              {renderListaEventosCompacta(`Eventos do dia ${String(diaSelecionado).padStart(2, "0")}`, eventosDoDiaSelecionado)}
             </div>
           )}
 
           <h3>Próximos eventos</h3>
-          {eventosFuturos.length === 0 && <p>Nenhum evento futuro cadastrado.</p>}
-          {eventosFuturos.map((e) => <CardEvento key={e.id} e={e} />)}
+          {renderListaEventosCompacta("Próximos eventos", eventosFuturos)}
         </>
       )}
 
@@ -5001,9 +5492,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
               ...estilos.card,
               borderColor: "#22c55e",
               background: "linear-gradient(135deg, rgba(20,83,45,0.34), rgba(15,23,42,0.92))",
-              position: "sticky",
-              top: 8,
-              zIndex: 20
+              position: "relative"
             }}>
               <strong style={{ color: "#bbf7d0" }}>🧭 Navegação rápida</strong>
               <p style={{ color: "#c4b5fd", marginTop: 6 }}>Você veio do cliente <strong>{navegacaoAnterior.clienteNome}</strong>. Use os botões abaixo para voltar sem procurar tudo de novo.</p>
@@ -5055,12 +5544,12 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
               <div onClick={() => abrirDetalheFinanceiro("saidasFinanceiroMes", "Saídas do calendário financeiro")} title="Clique para ver saídas do mês" style={estiloCardClicavel({ ...estilos.cardResumo, borderColor: "#ef4444", color: "#ef4444" })}><strong>Saídas do mês</strong><h2>{moeda(saidasFinanceiroMes)}</h2></div>
               <div onClick={() => abrirDetalheFinanceiro("resultadoFinanceiroMes", "Resultado do calendário financeiro")} title="Clique para ver resultado do mês" style={estiloCardClicavel({ ...estilos.cardResumo, borderColor: lucroFinanceiroMes >= 0 ? "#38bdf8" : "#ef4444", color: lucroFinanceiroMes >= 0 ? "#38bdf8" : "#ef4444" })}><strong>Resultado do mês</strong><h2>{moeda(lucroFinanceiroMes)}</h2></div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, textAlign: "center", marginBottom: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(7, minmax(42px, 1fr))" : "repeat(7, 1fr)", gap: isMobile ? 4 : 6, textAlign: "center", overflowX: "auto", marginBottom: 8 }}>
               {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => (
                 <strong key={d} style={{ color: "#c4b5fd" }}>{d}</strong>
               ))}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(7, minmax(42px, 1fr))" : "repeat(7, 1fr)", gap: isMobile ? 4 : 6, overflowX: "auto" }}>
               {diasCalendario.map((dia, index) => {
                 const resumoDia = dia ? resumoDiaFinanceiro(dia) : { qtd: 0, entradas: 0, saidas: 0, saldo: 0 };
                 return (
