@@ -233,6 +233,17 @@ export default function App() {
     taxaCartao: "0",
     observacao: ""
   }));
+
+  const [pagamentoInicialCadastro, setPagamentoInicialCadastro] = useState(() => ({
+    ativo: false,
+    valor: "",
+    contaId: "nubank",
+    formaPagamento: "Pix",
+    parcelas: "1",
+    taxaCartao: "0",
+    data: new Date().toISOString().slice(0, 10),
+    descricao: "Pagamento inicial / sinal"
+  }));
   const [clienteFinanceiroFiltro, setClienteFinanceiroFiltro] = useState("");
   const [diaFinanceiroSelecionado, setDiaFinanceiroSelecionado] = useState(null);
 
@@ -337,7 +348,7 @@ export default function App() {
     obs: juntarObservacoesJP(evento.obsInternas ?? evento.obs, evento.obsExtras),
     status: evento.status || "pre",
     executado: Boolean(evento.executado),
-    quitado: Boolean(evento.quitado),
+    quitado: Number(evento.valor || 0) > 0 && Number(evento.entrada || 0) >= Number(evento.valor || 0),
     historico: Array.isArray(evento.historico) ? evento.historico : [],
     data_cadastro: evento.dataCadastro || ""
   });
@@ -367,7 +378,7 @@ export default function App() {
     obsExtras: separarObservacoesJP(row.obs || "").extras,
     status: row.status || "pre",
     executado: Boolean(row.executado),
-    quitado: Boolean(row.quitado),
+    quitado: Number(row.valor || 0) > 0 && Number(row.entrada || 0) >= Number(row.valor || 0),
     historico: Array.isArray(row.historico) ? row.historico : [],
     dataCadastro: row.data_cadastro || ""
   });
@@ -852,15 +863,24 @@ Se aparecer o botão automático de instalação, use ele primeiro.`);
     return cidade || bairro || "Não informado";
   };
 
-  const temSinal = (e) => Number(e?.entrada || 0) > 0;
+  const valorNumeroJP = (valor) => Number(String(valor ?? "0").replace(/[^0-9,.-]/g, "").replace(",", ".")) || 0;
 
-  const reservaConfirmada = (e) => e?.status === "confirmado" || Boolean(e?.quitado);
+  const totalEventoJP = (e) => valorNumeroJP(e?.valor);
+  const recebidoEventoJP = (e) => valorNumeroJP(e?.entrada);
+  const pendenteEventoJP = (e) => Math.max(totalEventoJP(e) - recebidoEventoJP(e), 0);
+  const eventoQuitadoJP = (e) => totalEventoJP(e) > 0 && recebidoEventoJP(e) >= totalEventoJP(e);
 
-  const ehPreCadastro = (e) => !reservaConfirmada(e) || !e?.valor || Number(e.valor || 0) === 0;
+  const temSinal = (e) => recebidoEventoJP(e) > 0;
+
+  // Reserva confirmada é situação da data/evento. Quitado é situação financeira.
+  // Antes o sistema misturava os dois e podia mostrar QUITADO só porque havia sinal.
+  const reservaConfirmada = (e) => e?.status === "confirmado";
+
+  const ehPreCadastro = (e) => !reservaConfirmada(e) || !e?.valor || totalEventoJP(e) === 0;
 
   const statusEvento = (e) => {
     if (ehPreCadastro(e)) return "pre";
-    if (e.quitado) return "pago";
+    if (eventoQuitadoJP(e)) return "pago";
     return "pendente";
   };
 
@@ -1969,56 +1989,119 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     }
   };
 
+  const resetarPagamentoInicialCadastro = () => {
+    setPagamentoInicialCadastro({
+      ativo: false,
+      valor: "",
+      contaId: "nubank",
+      formaPagamento: "Pix",
+      parcelas: "1",
+      taxaCartao: "0",
+      data: new Date().toISOString().slice(0, 10),
+      descricao: "Pagamento inicial / sinal"
+    });
+  };
+
+  const abrirClienteSalvo = (evento) => {
+    if (!evento) return;
+    setBusca(evento.nome || evento.whatsapp || evento.tipoEvento || "");
+    setFiltroStatus("todos");
+    setNavegacaoAnterior(null);
+    setAba("eventos");
+  };
+
+  const registrarPagamentoInicialDoCadastro = (eventoSalvo) => {
+    if (!pagamentoInicialCadastro.ativo) return { entradaRegistrada: 0, parcelasTexto: "" };
+
+    const valorBruto = Number(String(pagamentoInicialCadastro.valor || "").replace(",", "."));
+    if (!valorBruto || valorBruto <= 0) return { entradaRegistrada: 0, parcelasTexto: "" };
+
+    const ehCartaoCredito = pagamentoInicialCadastro.formaPagamento === "Cartão de crédito";
+    const parcelas = ehCartaoCredito ? limitarNumero(pagamentoInicialCadastro.parcelas || 1, 1, 12) : 1;
+    const taxaCartao = ehCartaoCredito ? Number(String(pagamentoInicialCadastro.taxaCartao || "0").replace(",", ".")) : 0;
+    const valorTaxaTotal = Math.max((valorBruto * taxaCartao) / 100, 0);
+    const valorLiquidoTotal = Math.max(valorBruto - valorTaxaTotal, 0);
+    const grupoParcelamentoId = parcelas > 1 ? criarIdSeguro() : "";
+
+    for (let i = 0; i < parcelas; i += 1) {
+      criarMovimentoCaixa({
+        tipo: "entrada",
+        data: somarMesesData(pagamentoInicialCadastro.data, i),
+        descricao: parcelas > 1
+          ? `Parcela ${i + 1}/${parcelas} - ${pagamentoInicialCadastro.descricao || "Pagamento inicial"} - ${eventoSalvo.nome || "cliente"}`
+          : `${pagamentoInicialCadastro.descricao || "Pagamento inicial"} - ${eventoSalvo.nome || "cliente"}`,
+        categoria: "Entrada / sinal",
+        valor: valorLiquidoTotal / parcelas,
+        contaId: pagamentoInicialCadastro.contaId,
+        formaPagamento: pagamentoInicialCadastro.formaPagamento,
+        parcelas: String(parcelas),
+        parcelaNumero: parcelas > 1 ? String(i + 1) : "",
+        grupoParcelamentoId,
+        taxaCartao,
+        valorBruto: valorBruto / parcelas,
+        valorTaxa: valorTaxaTotal / parcelas,
+        eventoId: eventoSalvo.id,
+        cliente: eventoSalvo.nome || "",
+        observacao: parcelas > 1
+          ? `Pagamento inicial cadastrado junto com o cliente. Bruto total: ${moeda(valorBruto)}. Taxa: ${taxaCartao}%. Líquido previsto: ${moeda(valorLiquidoTotal)}.`
+          : "Pagamento inicial cadastrado junto com o cliente."
+      });
+    }
+
+    return { entradaRegistrada: valorBruto, parcelasTexto: ehCartaoCredito && parcelas > 1 ? `${parcelas}x` : "" };
+  };
+
   const salvar = () => {
     if (!form.nome || !form.whatsapp || !form.tipoEvento || !form.data) {
       alert("Preencha pelo menos nome, WhatsApp, tipo de evento e data.");
       return;
     }
 
-    const dadosEvento = {
+    const idFinal = editandoId || criarIdSeguro();
+    const dataCadastroFinal = form.dataCadastro || new Date().toLocaleString("pt-BR");
+
+    const eventoBase = {
       ...form,
+      id: idFinal,
+      dataCadastro: dataCadastroFinal,
       obs: juntarObservacoesJP(form.obsInternas ?? form.obs, form.obsExtras),
       horaInicio: normalizarHorarioManual(form.horaInicio) || form.horaInicio,
       horaFim: normalizarHorarioManual(form.horaFim) || form.horaFim,
       status: form.status || "pre",
-      quitado:
-        form.status === "pre"
-          ? false
-          : form.formaPagamento === "Valor total" ||
-            form.formaPagamento === "Valor total à vista" ||
-            (Number(form.valor || 0) > 0 && Number(form.entrada || 0) >= Number(form.valor || 0))
-            ? true
-            : Boolean(form.quitado),
       executado: Boolean(form.executado)
     };
 
+    const pagamentoCadastro = registrarPagamentoInicialDoCadastro(eventoBase);
+    const entradaComPagamentoInicial = pagamentoCadastro.entradaRegistrada > 0
+      ? Math.max(Number(eventoBase.entrada || 0), pagamentoCadastro.entradaRegistrada)
+      : Number(eventoBase.entrada || 0);
+
+    const dadosEvento = {
+      ...eventoBase,
+      entrada: String(entradaComPagamentoInicial),
+      formaEntrada: pagamentoCadastro.entradaRegistrada > 0 ? pagamentoInicialCadastro.formaPagamento : eventoBase.formaEntrada,
+      parcelas: pagamentoCadastro.parcelasTexto || eventoBase.parcelas,
+      quitado: Number(eventoBase.valor || 0) > 0 && entradaComPagamentoInicial >= Number(eventoBase.valor || 0),
+      historico: [
+        criarRegistroHistorico(
+          editandoId ? "Cadastro atualizado" : "Cadastro criado",
+          pagamentoCadastro.entradaRegistrada > 0
+            ? `Cliente salvo e pagamento inicial registrado: ${moeda(pagamentoCadastro.entradaRegistrada)} em ${contaPorId(pagamentoInicialCadastro.contaId).nome}`
+            : (eventoBase.status === "confirmado" ? "Reserva confirmada" : "Pré-reserva/proposta")
+        ),
+        ...(Array.isArray(form.historico) ? form.historico : [])
+      ].slice(0, 50)
+    };
+
     if (editandoId) {
-      const atualizados = eventos.map((e) =>
-        e.id === editandoId
-          ? {
-              ...dadosEvento,
-              id: editandoId,
-              dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR"),
-              historico: [
-                criarRegistroHistorico("Cadastro atualizado", dadosEvento.status === "confirmado" ? "Reserva confirmada" : "Pré-reserva/proposta"),
-                ...(Array.isArray(e.historico) ? e.historico : [])
-              ].slice(0, 50)
-            }
-          : e
-      );
-      setEventos(atualizados);
+      setEventos((lista) => lista.map((e) => (e.id === editandoId ? dadosEvento : e)));
     } else {
-      const novo = {
-        ...dadosEvento,
-        id: criarIdSeguro(),
-        dataCadastro: new Date().toLocaleString("pt-BR"),
-        historico: [criarRegistroHistorico("Cadastro criado", dadosEvento.status === "confirmado" ? "Reserva confirmada" : "Pré-reserva/proposta")]
-      };
-      setEventos([novo, ...eventos]);
+      setEventos((lista) => [dadosEvento, ...lista]);
     }
 
     limpar();
-    setAba("eventos");
+    resetarPagamentoInicialCadastro();
+    abrirClienteSalvo(dadosEvento);
   };
 
   const excluirEvento = (id) => {
@@ -2059,16 +2142,18 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   const marcarQuitado = (id, quitado) => {
     const registro = criarRegistroHistorico(quitado ? "Marcado como pago" : "Marcado como pendente", quitado ? "Pagamento confirmado" : "Pagamento em aberto");
     setEventos((lista) =>
-      lista.map((e) =>
-        e.id === id
-          ? {
-              ...e,
-              quitado,
-              status: quitado ? "confirmado" : e.status,
-              historico: [registro, ...(Array.isArray(e.historico) ? e.historico : [])].slice(0, 50)
-            }
-          : e
-      )
+      lista.map((e) => {
+        if (e.id !== id) return e;
+        const total = totalEventoJP(e);
+        return {
+          ...e,
+          // Ao quitar tudo pelo botão, o recebido acompanha o valor total para evitar saldo errado.
+          entrada: quitado && total > 0 ? String(total) : e.entrada,
+          quitado: quitado && total > 0,
+          status: quitado ? "confirmado" : e.status,
+          historico: [registro, ...(Array.isArray(e.historico) ? e.historico : [])].slice(0, 50)
+        };
+      })
     );
   };
 
@@ -2298,7 +2383,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   const abrirWhatsAppLembrarPagamento = (evento) => {
     const total = Number(evento.valor || 0);
     const entrada = Number(evento.entrada || 0);
-    const pendente = evento.quitado ? 0 : Math.max(total - entrada, 0);
+    const pendente = Math.max(total - entrada, 0);
 
     const mensagem = [
       `Olá, ${evento.nome || "tudo bem"}! 😊`,
@@ -2380,7 +2465,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   const textoCompleto = (e) => {
     const total = Number(e.valor || 0);
     const entrada = Number(e.entrada || 0);
-    const pendente = e.quitado ? 0 : Math.max(total - entrada, 0);
+    const pendente = Math.max(total - entrada, 0);
 
     return [
       `Nome: ${e.nome}`,
@@ -2468,7 +2553,12 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       horaFim: horaFimNormal || evento.horaFim || "",
       formaEntrada: evento.formaEntrada || "Pix",
       formaPagamento: evento.formaPagamento || "Entrada / sinal",
-      status: evento.status || "pre"
+      status: evento.status || "pre",
+      quitado: (() => {
+        const totalDoc = valorNumeroJP(temValorManual ? evento.valor : (infoPacote ? String(infoPacote.valor) : "0"));
+        const recebidoDoc = valorNumeroJP(temEntradaManual ? evento.entrada : "0");
+        return totalDoc > 0 && recebidoDoc >= totalDoc;
+      })()
     };
   };
 
@@ -2483,7 +2573,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     const doc = new jsPDF();
     const total = Number(e.valor || 0);
     const entrada = Number(e.entrada || 0);
-    const pendente = e.quitado ? 0 : Math.max(total - entrada, 0);
+    const pendente = Math.max(total - entrada, 0);
     const pacoteFinal = e.pacote === "Outro" ? e.pacotePersonalizado : e.pacote || "Não informado";
     const hojeContrato = new Date().toLocaleDateString("pt-BR");
     const obsLimpa = observacoesDocumento(e);
@@ -2652,7 +2742,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       cardFinanceiro("VALOR TOTAL", moeda(total), [37, 99, 235], margem, 42);
       cardFinanceiro("ENTRADA / SINAL", moeda(entrada), [202, 138, 4], margem + 47, 42);
       cardFinanceiro("PENDENTE", moeda(pendente), [220, 38, 38], margem + 94, 42);
-      cardFinanceiro("STATUS", e.quitado || pendente <= 0 ? "QUITADO" : "PENDENTE", e.quitado || pendente <= 0 ? [22, 163, 74] : [220, 38, 38], margem + 141, 41);
+      cardFinanceiro("STATUS", pendente <= 0 ? "QUITADO" : "PENDENTE", pendente <= 0 ? [22, 163, 74] : [220, 38, 38], margem + 141, 41);
       y += 31;
       campo("Forma da entrada", e.formaEntrada || "Não informada", { azul: true });
       campo("Forma de pagamento", e.formaPagamento || "Não informada", { azul: true });
@@ -2688,7 +2778,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       : [
           entrada > 0
             ? `1. O CONTRATANTE declara estar ciente de que o valor pago a título de entrada/sinal, no valor de ${moeda(entrada)}, confirma a reserva da data do evento e não será devolvido em caso de desistência, cancelamento ou quebra do acordo por parte do CONTRATANTE.`
-            : e.quitado
+            : pendente <= 0
               ? `1. Em caso de desistência, cancelamento ou quebra do acordo por parte do CONTRATANTE, será retido 50% do valor total contratado, correspondente a ${moeda(total * 0.5)}, por se tratar da reserva da data e bloqueio da agenda do CONTRATADO.`
               : "1. Tratando-se de pré-reserva sem pagamento, não haverá cobrança de cancelamento. A data poderá ser liberada pelo CONTRATADO caso não haja confirmação do sinal ou pagamento combinado.",
           "2. O saldo restante deverá ser quitado integralmente até a data do evento, preferencialmente antes do início da prestação do serviço. A ausência de quitação poderá impedir a realização do serviço.",
@@ -3255,10 +3345,10 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     setEventos((lista) =>
       lista.map((evento) => {
         if (evento.id !== pagamentoEvento.eventoId) return evento;
-        const total = Number(evento.valor || 0);
-        const entradaAtual = Number(evento.entrada || 0);
+        const total = totalEventoJP(evento);
+        const entradaAtual = recebidoEventoJP(evento);
         const novaEntrada = pagamentoEvento.tipo === "entrada" ? entradaAtual + valorBruto : Math.min(total || entradaAtual + valorBruto, entradaAtual + valorBruto);
-        const quitado = pagamentoEvento.tipo === "total" || (total > 0 && novaEntrada >= total);
+        const quitado = total > 0 && novaEntrada >= total;
 
         return {
           ...evento,
@@ -3432,7 +3522,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   const clientesSumidos = eventosFuturos.filter((e) => ehPreCadastro(e) && diasDesdeCadastro(e) >= 2);
 
   const pendentesFinanceiros = eventos
-    .filter((e) => !ehPreCadastro(e) && !e.quitado && Number(e.valor || 0) > Number(e.entrada || 0))
+    .filter((e) => !ehPreCadastro(e) && !eventoQuitadoJP(e) && pendenteEventoJP(e) > 0)
     .sort((a, b) => String(a.data || "9999-12-31").localeCompare(String(b.data || "9999-12-31")));
 
   const abrirEventoRapido = (evento) => {
@@ -3462,10 +3552,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     const atualizado = {
       ...evento,
       status: "confirmado",
-      quitado:
-        evento.formaPagamento === "Valor total" ||
-        evento.formaPagamento === "Valor total à vista" ||
-        (Number(evento.valor || 0) > 0 && Number(evento.entrada || 0) >= Number(evento.valor || 0)),
+      quitado: eventoQuitadoJP(evento),
       historico: [registro, ...(Array.isArray(evento.historico) ? evento.historico : [])].slice(0, 50)
     };
 
@@ -3511,7 +3598,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     const texto = normalizarTexto(busca);
     const statusPagamento = ehPreCadastro(e)
       ? "pre reserva pré reserva pre cadastro pré cadastro data reservada reserva"
-      : e.quitado
+      : eventoQuitadoJP(e)
         ? "pago quitado recebido"
         : "pendente aberto falta pagar";
 
@@ -3544,13 +3631,11 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     return passouBusca && passouFiltro;
   });
 
-  const totalRecebido = eventos.filter((e) => e.quitado).reduce((acc, e) => acc + Number(e.valor || 0), 0);
-  const totalEntradas = eventos.reduce((acc, e) => acc + Number(e.entrada || 0), 0);
-  const totalPendente = eventos
-    .filter((e) => !e.quitado)
-    .reduce((acc, e) => acc + Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0), 0);
-  const eventosPagos = eventos.filter((e) => e.quitado).length;
-  const eventosPendentes = eventos.filter((e) => !ehPreCadastro(e) && !e.quitado).length;
+  const totalRecebido = eventos.reduce((acc, e) => acc + Math.min(recebidoEventoJP(e), totalEventoJP(e) || recebidoEventoJP(e)), 0);
+  const totalEntradas = eventos.reduce((acc, e) => acc + recebidoEventoJP(e), 0);
+  const totalPendente = eventos.reduce((acc, e) => acc + pendenteEventoJP(e), 0);
+  const eventosPagos = eventos.filter((e) => eventoQuitadoJP(e)).length;
+  const eventosPendentes = eventos.filter((e) => !ehPreCadastro(e) && !eventoQuitadoJP(e)).length;
   const eventosPreReserva = eventos.filter((e) => ehPreCadastro(e)).length;
   const faturamentoTotal = eventos.reduce((acc, e) => acc + Number(e.valor || 0), 0);
 
@@ -3558,7 +3643,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   const lucroTotal = faturamentoTotal - custoTotal;
   const sinaisRecebidos = eventos.reduce((acc, e) => acc + Number(e.entrada || 0), 0);
   const faturamentoFuturo = eventosFuturos.reduce((acc, e) => acc + Number(e.valor || 0), 0);
-  const saldoReceberFuturo = eventosFuturos.reduce((acc, e) => acc + (e.quitado ? 0 : Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0)), 0);
+  const saldoReceberFuturo = eventosFuturos.reduce((acc, e) => acc + pendenteEventoJP(e), 0);
   const faturamentoMesAgenda = eventos
     .filter((e) => {
       if (!e.data) return false;
@@ -3584,7 +3669,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   const percentualMetaMensal = metaMensalNumero > 0 ? Math.min(100, Math.round((faturamentoMesAgenda / metaMensalNumero) * 100)) : 0;
   const margemLucroTotal = faturamentoTotal > 0 ? Math.round((lucroTotal / faturamentoTotal) * 100) : 0;
   const margemLucroMes = faturamentoMesAgenda > 0 ? Math.round((lucroMesEstimado / faturamentoMesAgenda) * 100) : 0;
-  const caixaRealRecebido = totalRecebido + eventos.filter((e) => !e.quitado).reduce((acc, e) => acc + Number(e.entrada || 0), 0);
+  const caixaRealRecebido = totalRecebido;
   const lucroRealEstimado = caixaRealRecebido - custoTotal;
   const eventosComLucroRuim = eventos.filter((e) => Number(e.valor || 0) > 0 && Number(e.custo || 0) > Number(e.valor || 0) * 0.55);
 
@@ -3609,7 +3694,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
 
   const saldoHoje = eventos
     .filter((e) => {
-      if (!e.data || !e.quitado) return false;
+      if (!e.data || !eventoQuitadoJP(e)) return false;
       const [ano, mes, dia] = e.data.split("-");
       const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
       return dataEvento.getTime() === hoje.getTime();
@@ -3621,7 +3706,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
 
   const saldo15Dias = eventos
     .filter((e) => {
-      if (!e.data || !e.quitado) return false;
+      if (!e.data || !eventoQuitadoJP(e)) return false;
       const [ano, mes, dia] = e.data.split("-");
       const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
       return dataEvento >= quinzeDiasAtras && dataEvento <= hoje;
@@ -3630,7 +3715,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
 
   const saldoMes = eventos
     .filter((e) => {
-      if (!e.data || !e.quitado) return false;
+      if (!e.data || !eventoQuitadoJP(e)) return false;
       const [ano, mes, dia] = e.data.split("-");
       const dataEvento = new Date(Number(ano), Number(mes) - 1, Number(dia));
       return dataEvento.getMonth() === hoje.getMonth() && dataEvento.getFullYear() === hoje.getFullYear();
@@ -3719,7 +3804,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   const CardEvento = ({ e }) => {
     const total = Number(e.valor || 0);
     const entrada = Number(e.entrada || 0);
-    const pendente = e.quitado ? 0 : Math.max(total - entrada, 0);
+    const pendente = Math.max(total - entrada, 0);
     const lucro = total - Number(e.custo || 0);
 
     return (
@@ -4197,6 +4282,91 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             <br />
             <span style={{ color: "#bbf7d0" }}>Esse cálculo usa Valor Total - Custo do Evento.</span>
           </div>
+          <div style={{ ...estilos.card, borderColor: pagamentoInicialCadastro.ativo ? "#22c55e" : "#38bdf8", background: pagamentoInicialCadastro.ativo ? "rgba(20,83,45,0.22)" : "rgba(14,165,233,0.12)" }}>
+            <h3>💳 Pagamento inicial no cadastro</h3>
+            <p style={{ color: "#c4b5fd" }}>
+              Use essa área quando o cliente já pagou sinal/entrada enquanto você ainda está cadastrando. Ao salvar, o sistema já lança no caixa e abre a ficha do cliente salvo.
+            </p>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: "bold", marginBottom: 10 }}>
+              <input
+                type="checkbox"
+                checked={Boolean(pagamentoInicialCadastro.ativo)}
+                onChange={(e) => setPagamentoInicialCadastro((atual) => ({
+                  ...atual,
+                  ativo: e.target.checked,
+                  valor: e.target.checked && !atual.valor ? (form.entrada || "") : atual.valor
+                }))}
+              />
+              Registrar esse pagamento no caixa ao salvar
+            </label>
+
+            {pagamentoInicialCadastro.ativo && (
+              <>
+                <label style={{ fontWeight: "bold", color: "#facc15" }}>VALOR RECEBIDO AGORA:</label>
+                <input
+                  style={{ ...estilos.input, borderColor: "#facc15" }}
+                  placeholder="Ex: 125"
+                  value={pagamentoInicialCadastro.valor}
+                  onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, valor: e.target.value })}
+                />
+
+                <label style={{ fontWeight: "bold" }}>CONTA/BANCO ONDE ENTROU:</label>
+                <select
+                  style={estilos.input}
+                  value={pagamentoInicialCadastro.contaId}
+                  onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, contaId: e.target.value })}
+                >
+                  {contasFinanceiras.map((conta) => <option key={conta.id} value={conta.id}>{conta.nome}</option>)}
+                </select>
+
+                <label style={{ fontWeight: "bold" }}>FORMA DE PAGAMENTO:</label>
+                <select
+                  style={estilos.input}
+                  value={pagamentoInicialCadastro.formaPagamento}
+                  onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, formaPagamento: e.target.value })}
+                >
+                  <option value="Pix">Pix</option>
+                  <option value="Dinheiro">Dinheiro</option>
+                  <option value="Cartão de débito">Cartão de débito</option>
+                  <option value="Cartão de crédito">Cartão de crédito</option>
+                  <option value="Transferência bancária">Transferência bancária</option>
+                </select>
+
+                {pagamentoInicialCadastro.formaPagamento === "Cartão de crédito" && (
+                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                    <div>
+                      <label style={{ fontWeight: "bold" }}>PARCELAS:</label>
+                      <select
+                        style={estilos.input}
+                        value={pagamentoInicialCadastro.parcelas || "1"}
+                        onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, parcelas: e.target.value })}
+                      >
+                        {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((n) => <option key={n} value={n}>{n}x</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontWeight: "bold" }}>TAXA DA MAQUININHA (%):</label>
+                      <input
+                        style={estilos.input}
+                        placeholder="Ex: 3.5"
+                        value={pagamentoInicialCadastro.taxaCartao || ""}
+                        onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, taxaCartao: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <label style={{ fontWeight: "bold" }}>DATA DO RECEBIMENTO / 1ª PARCELA:</label>
+                <input
+                  type="date"
+                  style={estilos.input}
+                  value={pagamentoInicialCadastro.data}
+                  onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, data: e.target.value })}
+                />
+              </>
+            )}
+          </div>
 <label style={{ fontWeight: "bold" }}>FORMA DA ENTRADA / SINAL:</label>
           <select style={estilos.input} value={form.formaEntrada || ""} onChange={(e) => setForm({ ...form, formaEntrada: e.target.value })}>
             <option value="">Forma da entrada / sinal</option>
@@ -4254,7 +4424,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             placeholder="Digite aqui observações para aparecer na proposta, contrato e recibo. Esse campo é separado das observações de cima."
           />
 
-<button style={estilos.botaoRoxo} onClick={salvar}>{editandoId ? "Salvar edição" : "Salvar"}</button>
+<button style={estilos.botaoRoxo} onClick={salvar}>{editandoId ? "Salvar edição e abrir cliente" : "Salvar cadastro e abrir cliente"}</button>
           <button style={estilos.botao} onClick={() => abrirWhatsAppProposta(form)}>Enviar proposta no WhatsApp</button>
           <button style={estilos.botaoRoxo} onClick={() => gerarProposta({ ...form, id: editandoId || Date.now(), dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR") })}>Proposta PDF agora</button>
           <button style={estilos.botao} onClick={() => gerarContrato({ ...form, id: editandoId || Date.now(), dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR"), status: "confirmado" })}>Contrato PDF agora</button>
@@ -4842,7 +5012,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
               <div key={e.id} style={{ borderBottom: "1px solid #374151", padding: "10px 0" }}>
                 <strong>{dataCurtaBR(e.data)} - {e.nome}</strong>
                 <br />
-                Total: {moeda(e.valor)} | Entrada: {moeda(e.entrada)} | Custo: {moeda(e.custo || 0)} | Lucro: {moeda(Number(e.valor || 0) - Number(e.custo || 0))} | Pendente: {e.quitado ? moeda(0) : moeda(Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0))}
+                Total: {moeda(e.valor)} | Entrada: {moeda(e.entrada)} | Custo: {moeda(e.custo || 0)} | Lucro: {moeda(Number(e.valor || 0) - Number(e.custo || 0))} | Pendente: {moeda(pendenteEventoJP(e))}
                 <br />
                 <span style={{ color: corStatus(e), fontWeight: "bold" }}>{textoStatus(e)}</span>
               </div>
