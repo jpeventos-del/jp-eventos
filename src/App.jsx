@@ -2305,24 +2305,30 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     const clienteTexto = eventoAlvo.nome || "cliente sem nome";
 
     const ok = confirm(
-      `Excluir SOMENTE este evento/serviço?\n\nCliente: ${clienteTexto}\nEvento/serviço: ${titulo}\nData: ${dataTexto}\n\nO cliente e os outros eventos deste cliente continuarão salvos.`
+      `Deseja excluir SOMENTE este evento/serviço?
+
+Cliente: ${clienteTexto}
+Evento/serviço: ${titulo}
+Data: ${dataTexto}
+
+✅ OK = apagar apenas este evento
+❌ Cancelar = não apagar
+
+O cliente e os outros eventos deste cliente continuarão salvos.`
     );
     if (!ok) return;
-
-    const confirmarTexto = prompt(
-      `Para confirmar a exclusão somente deste evento/serviço, digite: EXCLUIR\n\n${clienteTexto} - ${dataTexto}`
-    );
-    if (String(confirmarTexto || "").trim().toUpperCase() !== "EXCLUIR") {
-      alert("Exclusão cancelada. Nada foi apagado.");
-      return;
-    }
 
     setEventos((lista) => lista.filter((e) => e.id !== id));
 
     const movimentosRelacionados = movimentosCaixa.filter((m) => m.eventoId === id);
     if (movimentosRelacionados.length > 0) {
       const limparCaixa = confirm(
-        `Este evento/serviço tem ${movimentosRelacionados.length} lançamento(s) de caixa vinculado(s).\n\nDeseja remover também esses lançamentos do caixa?`
+        `Este evento/serviço tem ${movimentosRelacionados.length} lançamento(s) de caixa vinculado(s).
+
+Deseja remover também esses lançamentos do caixa?
+
+✅ OK = remover lançamentos
+❌ Cancelar = manter lançamentos`
       );
       if (limparCaixa) {
         setMovimentosCaixa((lista) => lista.filter((m) => m.eventoId !== id));
@@ -2332,6 +2338,60 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     setEventoExpandidoId(null);
     setEventoAbertoLista(null);
     alert("Evento/serviço excluído. O cliente foi mantido.");
+  };
+
+  const excluirClienteCompleto = (cliente) => {
+    if (!cliente) return;
+    const eventosDoCliente = eventos.filter((e) => chaveClienteJP(e) === cliente.chave);
+    const qtdEventos = eventosDoCliente.length;
+    const nomeCliente = cliente.nome || "Cliente sem nome";
+
+    const ok = confirm(
+      `Deseja excluir este cliente COMPLETO?
+
+Cliente: ${nomeCliente}
+WhatsApp: ${cliente.whatsapp || "Não informado"}
+Eventos/serviços vinculados: ${qtdEventos}
+
+⚠️ Isso apaga o cliente e todos os eventos/serviços dele.
+
+✅ OK = excluir cliente completo
+❌ Cancelar = sair sem apagar`
+    );
+    if (!ok) return;
+
+    const confirmarFinal = confirm(
+      `Confirma mesmo a exclusão completa de ${nomeCliente}?
+
+Depois disso, os eventos/serviços desse cliente também serão removidos da lista.
+
+✅ OK = confirmar exclusão
+❌ Cancelar = desistir`
+    );
+    if (!confirmarFinal) return;
+
+    const idsEventosCliente = new Set(eventosDoCliente.map((e) => e.id));
+    setEventos((lista) => lista.filter((e) => chaveClienteJP(e) !== cliente.chave));
+
+    const movimentosRelacionados = movimentosCaixa.filter((m) => idsEventosCliente.has(m.eventoId));
+    if (movimentosRelacionados.length > 0) {
+      const limparCaixa = confirm(
+        `Esse cliente tem ${movimentosRelacionados.length} lançamento(s) de caixa ligado(s) aos eventos dele.
+
+Deseja remover esses lançamentos também?
+
+✅ OK = remover do caixa
+❌ Cancelar = manter no caixa`
+      );
+      if (limparCaixa) {
+        setMovimentosCaixa((lista) => lista.filter((m) => !idsEventosCliente.has(m.eventoId)));
+      }
+    }
+
+    setClienteAbertoChave(null);
+    setEventoExpandidoId(null);
+    setBusca("");
+    alert("Cliente excluído com segurança.");
   };
 
   const editarEvento = (evento) => {
@@ -4504,7 +4564,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   return (
     <div style={estilos.pagina} translate="no">
       <h1 style={estilos.titulo}>JP Eventos Pro</h1>
-      <p style={estilos.subtitulo}>Sistema completo com eventos, contratos, recibos, atalhos por cliente, caixa por contas/bancos, forma de pagamento separada, cartão parcelado até 12x e calendário financeiro. v26.6 exclusão segura: apagar somente evento/serviço sem apagar cliente.</p>
+      <p style={estilos.subtitulo}>Sistema completo com eventos, contratos, recibos, atalhos por cliente, caixa por contas/bancos, forma de pagamento separada, cartão parcelado até 12x e calendário financeiro. v26.7 exclusão visual: apagar evento individual ou cliente completo com confirmação em botões.</p>
 
       <input
         placeholder="Buscar por cliente, data, status, cidade, pacote..."
@@ -5253,6 +5313,7 @@ Usar essa data no cadastro
               <div style={estilos.grupoAcoes}>
                 <button style={estilos.botaoRoxo} onClick={() => { setBusca(cliente.nome); setFiltroStatus("todos"); setEventoExpandidoId(null); setModoEventosExpandido(false); setTituloListaAberta(`Eventos/serviços de ${cliente.nome}`); setAba("eventos"); }}>Abrir eventos/serviços deste cliente</button>
                 <button style={estilos.botao} onClick={() => novoEventoServicoParaCliente(cliente, "clientes")}>+ Novo evento / serviço para este cliente</button>
+                <button style={{ ...estilos.botaoPequeno, background: "#991b1b", color: "white" }} onClick={() => excluirClienteCompleto(cliente)}>🗑️ Excluir cliente completo</button>
               </div>
               {cliente.eventos.length === 0 && <p style={{ color: "#c4b5fd" }}>Cliente cadastrado sem evento ainda. Clique em + Novo evento / serviço para começar.</p>}
               {cliente.eventos.map((ev) => (
