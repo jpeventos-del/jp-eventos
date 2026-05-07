@@ -187,6 +187,16 @@ export default function App() {
       return formInicial;
     }
   });
+  const [custoDescricaoDigitando, setCustoDescricaoDigitando] = useState(() => {
+    try {
+      const rascunho = localStorage.getItem("rascunhoFormJPEventos");
+      if (!rascunho) return "";
+      const dados = JSON.parse(rascunho);
+      return String(dados?.custoDescricao || "");
+    } catch {
+      return "";
+    }
+  });
   const [textoWhatsApp, setTextoWhatsApp] = useState(() => localStorage.getItem("rascunhoWhatsAppJPEventos") || "");
   const [whatsAppEditor, setWhatsAppEditor] = useState(null);
   const [tomWhatsApp, setTomWhatsApp] = useState(() => localStorage.getItem("tomWhatsAppJPEventos") || "profissional");
@@ -1900,6 +1910,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
 
   const limpar = () => {
     setForm(formInicial);
+    setCustoDescricaoDigitando("");
     setEditandoId(null);
     localStorage.removeItem("rascunhoFormJPEventos");
   };
@@ -1912,6 +1923,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   const limparSomenteCadastro = () => {
     if (!confirm("Limpar somente os campos do cadastro? A conversa do WhatsApp será mantida.")) return;
     setForm(formInicial);
+    setCustoDescricaoDigitando("");
     setEditandoId(null);
     localStorage.removeItem("rascunhoFormJPEventos");
   };
@@ -2025,7 +2037,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       return;
     }
 
-    const custoDescricaoLimpa = String(form.custoDescricao || "").trim();
+    const custoDescricaoLimpa = String(custoDescricaoDigitando || "").trim();
     const obsInternasSemCusto = removerCustoDescricaoJP(form.obsInternas ?? form.obs);
     const obsInternasComCusto = [
       obsInternasSemCusto,
@@ -2165,6 +2177,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   };
 
   const editarEvento = (evento) => {
+    setCustoDescricaoDigitando(custoDescricaoFinalJP(evento));
     setForm({
       ...formInicial,
       ...evento,
@@ -4505,7 +4518,6 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             placeholder="Digite só o valor. Ex: 100"
             value={form.custo ?? ""}
             inputMode="decimal"
-            onInput={(e) => atualizarCustoCadastroAoVivo(e.currentTarget.value)}
             onChange={(e) => atualizarCustoCadastroAoVivo(e.target.value)}
           />
 
@@ -4513,15 +4525,15 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
           <input
             style={estilos.input}
             placeholder="Ex: combustível, ajudante, alimentação, aluguel de equipamento..."
-            value={form.custoDescricao || ""}
-            onChange={(e) => setForm((atual) => ({ ...atual, custoDescricao: e.target.value }))}
+            value={custoDescricaoDigitando}
+            onChange={(e) => setCustoDescricaoDigitando(String(e.target.value || ""))}
           />
 
           <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20, 83, 45, 0.20)" }}>
             <strong>📈 Lucro estimado:</strong> {moeda(lucroCadastroNumero)}
             <br />
             <span style={{ color: "#bbf7d0" }}>
-              Atualiza na hora: Valor total {moeda(valorCadastroNumero)} - Custo {moeda(custoCadastroNumero)}{form.custoDescricao ? ` (${String(form.custoDescricao)})` : ""} = {moeda(lucroCadastroNumero)}.
+              Atualiza na hora: Valor total {moeda(valorCadastroNumero)} - Custo {moeda(custoCadastroNumero)}{custoDescricaoDigitando ? ` (${String(custoDescricaoDigitando)})` : ""} = {moeda(lucroCadastroNumero)}.
             </span>
           </div>
 
