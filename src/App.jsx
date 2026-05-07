@@ -338,7 +338,7 @@ export default function App() {
     pacote_personalizado: evento.pacotePersonalizado || "",
     valor: Number(evento.valor || 0),
     entrada: Number(evento.entrada || 0),
-    custo: Number(evento.custo || 0),
+    custo: valorNumericoJP(evento.custo),
     forma_entrada: evento.formaEntrada || "",
     forma_pagamento: evento.formaPagamento || "",
     parcelas: evento.parcelas || "",
@@ -751,8 +751,22 @@ Se aparecer o botão automático de instalação, use ele primeiro.`);
     return separarObservacoesJP(evento?.obs || "").extras;
   };
 
+  const valorNumericoJP = (valor) => {
+    if (valor === undefined || valor === null || valor === "") return 0;
+    if (typeof valor === "number") return Number.isFinite(valor) ? valor : 0;
+
+    const texto = String(valor).trim();
+    if (!texto) return 0;
+
+    const achou = texto.match(/-?\d+(?:[.,]\d{1,2})?/);
+    if (!achou) return 0;
+
+    const numero = Number(achou[0].replace(",", "."));
+    return Number.isFinite(numero) ? numero : 0;
+  };
+
   const moeda = (valor) =>
-    Number(valor || 0).toLocaleString("pt-BR", {
+    valorNumericoJP(valor).toLocaleString("pt-BR", {
       style: "currency",
       currency: "BRL"
     });
@@ -3519,7 +3533,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       case "valorTotal": return eventos.filter((e) => Number(e.valor || 0) > 0);
       case "entradaSinal": return eventos.filter((e) => Number(e.entrada || 0) > 0);
       case "pendente": return eventos.filter(pendenteEvento);
-      case "custos": return eventos.filter((e) => Number(e.custo || 0) > 0);
+      case "custos": return eventos.filter((e) => valorNumericoJP(e.custo) > 0);
       case "lucroEstimado": return eventos.filter((e) => Number(e.valor || 0) > 0);
       case "sinais": return eventos.filter((e) => Number(e.entrada || 0) > 0);
       case "faturamentoFuturo": return eventosFuturos.filter((e) => Number(e.valor || 0) > 0);
@@ -3530,7 +3544,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       case "margem": return eventos.filter((e) => Number(e.valor || 0) > 0);
       case "conversao": return eventos;
       case "receitaMesGrafico": return eventos.filter((e) => eventoNoMesAtual(e) && Number(e.valor || 0) > 0);
-      case "custosMesGrafico": return eventos.filter((e) => eventoNoMesAtual(e) && Number(e.custo || 0) > 0);
+      case "custosMesGrafico": return eventos.filter((e) => eventoNoMesAtual(e) && valorNumericoJP(e.custo) > 0);
       case "lucroMesGrafico": return eventos.filter((e) => eventoNoMesAtual(e) && Number(e.valor || 0) > 0);
       case "metaGrafico": return eventos.filter(eventoNoMesAtual);
       default: return [];
@@ -3780,7 +3794,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   const eventosPreReserva = eventos.filter((e) => ehPreCadastro(e)).length;
   const faturamentoTotal = eventos.reduce((acc, e) => acc + Number(e.valor || 0), 0);
 
-  const custoTotal = eventos.reduce((acc, e) => acc + Number(e.custo || 0), 0);
+  const custoTotal = eventos.reduce((acc, e) => acc + valorNumericoJP(e.custo), 0);
   const lucroTotal = faturamentoTotal - custoTotal;
   const sinaisRecebidos = eventos.reduce((acc, e) => acc + Number(e.entrada || 0), 0);
   const faturamentoFuturo = eventosFuturos.reduce((acc, e) => acc + Number(e.valor || 0), 0);
@@ -3798,7 +3812,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       const [ano, mes] = e.data.split("-").map(Number);
       return ano === hoje.getFullYear() && mes - 1 === hoje.getMonth();
     })
-    .reduce((acc, e) => acc + Number(e.custo || 0), 0);
+    .reduce((acc, e) => acc + valorNumericoJP(e.custo), 0);
   const lucroMesEstimado = faturamentoMesAgenda - custosMesAgenda;
   const ticketMedio = eventos.filter((e) => reservaConfirmada(e)).length > 0
     ? faturamentoTotal / eventos.filter((e) => reservaConfirmada(e)).length
@@ -3812,7 +3826,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   const margemLucroMes = faturamentoMesAgenda > 0 ? Math.round((lucroMesEstimado / faturamentoMesAgenda) * 100) : 0;
   const caixaRealRecebido = totalRecebido + eventos.filter((e) => !e.quitado).reduce((acc, e) => acc + Number(e.entrada || 0), 0);
   const lucroRealEstimado = caixaRealRecebido - custoTotal;
-  const eventosComLucroRuim = eventos.filter((e) => Number(e.valor || 0) > 0 && Number(e.custo || 0) > Number(e.valor || 0) * 0.55);
+  const eventosComLucroRuim = eventos.filter((e) => valorNumericoJP(e.valor) > 0 && valorNumericoJP(e.custo) > valorNumericoJP(e.valor) * 0.55);
 
   const rankingClientes = Object.values(
     eventos.reduce((acc, e) => {
@@ -3946,7 +3960,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     const total = Number(e.valor || 0);
     const entrada = Number(e.entrada || 0);
     const pendente = e.quitado ? 0 : Math.max(total - entrada, 0);
-    const lucro = total - Number(e.custo || 0);
+    const lucro = total - valorNumericoJP(e.custo);
 
     return (
       <div style={{ ...estilos.card, borderColor: corStatus(e) }}>
@@ -4433,18 +4447,18 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             onChange={(e) => setForm({ ...form, entrada: e.target.value })}
           />
 
-          <label style={{ fontWeight: "bold" }}>CUSTO DO EVENTO:</label>
+          <label style={{ fontWeight: "bold" }}>CUSTO DO EVENTO (VALOR EM R$):</label>
           <input
             style={estilos.input}
-            placeholder="Ex: transporte, ajudante, aluguel, combustível..."
+            placeholder="Digite só o valor do custo. Ex: 80 ou 80,50"
             value={form.custo || ""}
             onChange={(e) => setForm({ ...form, custo: e.target.value })}
           />
 
           <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20, 83, 45, 0.20)" }}>
-            <strong>📈 Lucro estimado:</strong> {moeda(Number(form.valor || 0) - Number(form.custo || 0))}
+            <strong>📈 Lucro estimado:</strong> {moeda(valorNumericoJP(form.valor) - valorNumericoJP(form.custo))}
             <br />
-            <span style={{ color: "#bbf7d0" }}>Esse cálculo usa Valor Total - Custo do Evento.</span>
+            <span style={{ color: "#bbf7d0" }}>Digite apenas o valor do custo. O cálculo usa Valor Total - Custo do Evento.</span>
           </div>
 
           <div style={{ ...estilos.card, borderColor: form.pagamentoCadastroTipo && form.pagamentoCadastroTipo !== "nao" ? "#22c55e" : "#38bdf8", background: form.pagamentoCadastroTipo && form.pagamentoCadastroTipo !== "nao" ? "rgba(20,83,45,0.20)" : "rgba(14,165,233,0.10)" }}>
@@ -5183,7 +5197,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
               <p>Eventos com custo alto em relação ao valor total. Vale revisar preço, transporte, ajudante ou aluguel.</p>
               {eventosComLucroRuim.slice(0, 5).map((e) => (
                 <button key={e.id} style={{ ...estilos.botao, display: "block", width: "100%", textAlign: "left" }} onClick={() => abrirEventoRapido(e)}>
-                  {e.nome} - valor {moeda(e.valor)} | custo {moeda(e.custo || 0)} | lucro {moeda(Number(e.valor || 0) - Number(e.custo || 0))}
+                  {e.nome} - valor {moeda(e.valor)} | custo {moeda(e.custo || 0)} | lucro {moeda(valorNumericoJP(e.valor) - valorNumericoJP(e.custo))}
                 </button>
               ))}
             </div>
@@ -5223,7 +5237,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
               <div key={e.id} style={{ borderBottom: "1px solid #374151", padding: "10px 0" }}>
                 <strong>{dataCurtaBR(e.data)} - {e.nome}</strong>
                 <br />
-                Total: {moeda(e.valor)} | Entrada: {moeda(e.entrada)} | Custo: {moeda(e.custo || 0)} | Lucro: {moeda(Number(e.valor || 0) - Number(e.custo || 0))} | Pendente: {e.quitado ? moeda(0) : moeda(Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0))}
+                Total: {moeda(e.valor)} | Entrada: {moeda(e.entrada)} | Custo: {moeda(e.custo || 0)} | Lucro: {moeda(valorNumericoJP(e.valor) - valorNumericoJP(e.custo))} | Pendente: {e.quitado ? moeda(0) : moeda(Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0))}
                 <br />
                 <span style={{ color: corStatus(e), fontWeight: "bold" }}>{textoStatus(e)}</span>
               </div>
