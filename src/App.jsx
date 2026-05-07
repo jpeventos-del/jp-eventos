@@ -58,6 +58,13 @@ export default function App() {
     quitado: false,
     obsInternas: "",
     obsExtras: "",
+    pagamentoCadastroTipo: "nao",
+    pagamentoCadastroValor: "",
+    pagamentoCadastroContaId: "nubank",
+    pagamentoCadastroForma: "Pix",
+    pagamentoCadastroParcelas: "1",
+    pagamentoCadastroTaxa: "0",
+    pagamentoCadastroData: new Date().toISOString().slice(0, 10),
   };
 
   const PACOTES_PROFISSIONAIS = {
@@ -88,14 +95,13 @@ export default function App() {
     const info = pacoteInfo(pacoteEscolhido);
     if (!info) return;
 
-    // Usa somente o VALOR TOTAL sugerido do pacote.
-    // A entrada/sinal agora vem apenas do campo "Pagamento inicial no cadastro",
-    // para não confundir nem jogar o valor total dentro da entrada.
+    // Este botão agora só usa a sugestão quando você clicar nele de propósito.
+    // Se quiser preço manual, basta digitar no campo VALOR TOTAL e ele será mantido.
     setForm((atual) => ({
       ...atual,
       pacote: pacoteEscolhido,
       valor: String(info.valor),
-      entrada: editandoId ? atual.entrada : "0",
+      entrada: campoFoiPreenchido(atual.entrada) ? atual.entrada : "0",
       formaEntrada: atual.formaEntrada || "Pix",
       formaPagamento: atual.formaPagamento || "Entrada / sinal"
     }));
@@ -103,6 +109,7 @@ export default function App() {
 
   const confirmarValorManual = () => {
     const valorManual = String(form.valor ?? "").trim();
+    const sinalManual = String(form.entrada ?? "").trim();
 
     if (!valorManual) {
       alert("Digite primeiro o valor final no campo VALOR TOTAL.");
@@ -113,10 +120,10 @@ export default function App() {
     setForm((atual) => ({
       ...atual,
       valor: valorManual,
-      entrada: editandoId ? atual.entrada : "0"
+      entrada: sinalManual === "" ? "0" : sinalManual
     }));
 
-    alert(`Valor manual confirmado!\n\nValor final: ${moeda(valorManual)}\n\nSe o cliente já pagou sinal/entrada, marque "Registrar esse pagamento no caixa ao salvar" e informe o valor recebido uma única vez.`);
+    alert(`Valor manual confirmado!\n\nValor final: ${moeda(valorManual)}${sinalManual ? `\nSinal: ${moeda(sinalManual)}` : ""}\n\nA proposta, o contrato e o WhatsApp vão usar esse valor.`);
   };
 
   const mensagemComPreco = (evento = form) => {
@@ -195,22 +202,15 @@ export default function App() {
     }
   });
   const contasPadraoJP = [
-    { id: "nubank", nome: "Nubank - crédito e débito", saldoInicial: 0 },
+    { id: "nubank", nome: "Nubank", saldoInicial: 0 },
     { id: "caixa_poupanca", nome: "Caixa Poupança", saldoInicial: 0 },
-    { id: "pix", nome: "PIX", saldoInicial: 0 },
     { id: "carteira", nome: "Carteira / dinheiro", saldoInicial: 0 }
   ];
 
   const [contasFinanceiras, setContasFinanceiras] = useState(() => {
     try {
       const salvas = localStorage.getItem("contasFinanceirasJPEventos");
-      const listaSalva = salvas ? JSON.parse(salvas) : [];
-      const listaBase = Array.isArray(listaSalva) && listaSalva.length ? listaSalva : contasPadraoJP;
-      const ids = new Set(listaBase.map((conta) => conta.id));
-      return [
-        ...listaBase.map((conta) => conta.id === "nubank" ? { ...conta, nome: conta.nome === "Nubank" ? "Nubank - crédito e débito" : conta.nome } : conta),
-        ...contasPadraoJP.filter((conta) => !ids.has(conta.id))
-      ];
+      return salvas ? JSON.parse(salvas) : contasPadraoJP;
     } catch {
       return contasPadraoJP;
     }
@@ -239,18 +239,6 @@ export default function App() {
     parcelas: "1",
     taxaCartao: "0",
     observacao: ""
-  }));
-
-
-  const [pagamentoInicialCadastro, setPagamentoInicialCadastro] = useState(() => ({
-    ativo: false,
-    valor: "",
-    contaId: "pix",
-    formaPagamento: "Pix",
-    parcelas: "1",
-    taxaCartao: "0",
-    data: new Date().toISOString().slice(0, 10),
-    descricao: "Pagamento inicial / sinal"
   }));
   const [clienteFinanceiroFiltro, setClienteFinanceiroFiltro] = useState("");
   const [diaFinanceiroSelecionado, setDiaFinanceiroSelecionado] = useState(null);
@@ -1855,7 +1843,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       bairro: bairro || form.bairro || "",
       pacote: form.pacote || pacoteSugerido,
       valor: campoFoiPreenchido(form.valor) ? String(form.valor) : (valorExtraido ? String(valorExtraido) : (pacoteInfo(pacoteSugerido)?.valor ? String(pacoteInfo(pacoteSugerido).valor) : form.valor)),
-      entrada: campoFoiPreenchido(form.entrada) ? String(form.entrada) : (entradaExtraida ? String(entradaExtraida) : (pacoteInfo(pacoteSugerido)?.entrada ? String(pacoteInfo(pacoteSugerido).entrada) : "0")),
+      entrada: campoFoiPreenchido(form.entrada) ? String(form.entrada) : (entradaExtraida ? String(entradaExtraida) : "0"),
       formaEntrada: form.formaEntrada || (pacoteInfo(pacoteSugerido) ? "Pix" : form.formaEntrada),
       formaPagamento: form.formaPagamento || (pacoteInfo(pacoteSugerido) ? "Entrada / sinal" : form.formaPagamento),
       obsInternas: obsExtras,
@@ -1989,142 +1977,134 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     }
   };
 
-  const resetarPagamentoInicialCadastro = () => {
-    setPagamentoInicialCadastro({
-      ativo: false,
-      valor: "",
-      contaId: "pix",
-      formaPagamento: "Pix",
-      parcelas: "1",
-      taxaCartao: "0",
-      data: new Date().toISOString().slice(0, 10),
-      descricao: "Pagamento inicial / sinal"
-    });
-  };
-
-  const abrirClienteSalvo = (evento) => {
-    if (!evento) return;
-    setBusca(evento.nome || evento.whatsapp || evento.tipoEvento || "");
-    setFiltroStatus("todos");
-    setNavegacaoAnterior(null);
-    setAba("eventos");
-  };
-
-  const registrarPagamentoInicialDoCadastro = (eventoSalvo) => {
-    if (!pagamentoInicialCadastro.ativo) return { entradaRegistrada: 0, parcelasTexto: "" };
-
-    const valorBruto = Number(String(pagamentoInicialCadastro.valor || "").replace(",", "."));
-    if (!valorBruto || valorBruto <= 0) return { entradaRegistrada: 0, parcelasTexto: "" };
-
-    // Segurança contra duplicidade: se este cliente já tem um lançamento automático inicial,
-    // não cria outro igual quando você abre/edita/salva novamente.
-    const jaTemPagamentoInicial = movimentosCaixa.some((mov) =>
-      mov?.eventoId === eventoSalvo?.id &&
-      mov?.tipo === "entrada" &&
-      String(mov?.observacao || "").includes("Pagamento inicial cadastrado junto com o cliente")
-    );
-    if (jaTemPagamentoInicial) {
-      alert("Esse cliente já tem pagamento inicial registrado no caixa. Para novo recebimento, use os botões + Entrada / sinal ou + Pagamento total / saldo na ficha do cliente.");
-      return { entradaRegistrada: 0, parcelasTexto: "" };
-    }
-
-    const ehCartaoCredito = pagamentoInicialCadastro.formaPagamento === "Cartão de crédito";
-    const parcelas = ehCartaoCredito ? limitarNumero(pagamentoInicialCadastro.parcelas || 1, 1, 12) : 1;
-    const taxaCartao = ehCartaoCredito ? Number(String(pagamentoInicialCadastro.taxaCartao || "0").replace(",", ".")) : 0;
-    const valorTaxaTotal = Math.max((valorBruto * taxaCartao) / 100, 0);
-    const valorLiquidoTotal = Math.max(valorBruto - valorTaxaTotal, 0);
-    const grupoParcelamentoId = parcelas > 1 ? criarIdSeguro() : "";
-
-    for (let i = 0; i < parcelas; i += 1) {
-      criarMovimentoCaixa({
-        tipo: "entrada",
-        data: somarMesesData(pagamentoInicialCadastro.data, i),
-        descricao: parcelas > 1
-          ? `Parcela ${i + 1}/${parcelas} - ${pagamentoInicialCadastro.descricao || "Pagamento inicial"} - ${eventoSalvo.nome || "cliente"}`
-          : `${pagamentoInicialCadastro.descricao || "Pagamento inicial"} - ${eventoSalvo.nome || "cliente"}`,
-        categoria: "Entrada / sinal",
-        valor: valorLiquidoTotal / parcelas,
-        contaId: pagamentoInicialCadastro.contaId,
-        formaPagamento: pagamentoInicialCadastro.formaPagamento,
-        parcelas: String(parcelas),
-        parcelaNumero: parcelas > 1 ? String(i + 1) : "",
-        grupoParcelamentoId,
-        taxaCartao,
-        valorBruto: valorBruto / parcelas,
-        valorTaxa: valorTaxaTotal / parcelas,
-        eventoId: eventoSalvo.id,
-        cliente: eventoSalvo.nome || "",
-        observacao: parcelas > 1
-          ? `Pagamento inicial cadastrado junto com o cliente. Bruto total: ${moeda(valorBruto)}. Taxa: ${taxaCartao}%. Líquido previsto: ${moeda(valorLiquidoTotal)}.`
-          : "Pagamento inicial cadastrado junto com o cliente."
-      });
-    }
-
-    return { entradaRegistrada: valorBruto, parcelasTexto: ehCartaoCredito && parcelas > 1 ? `${parcelas}x` : "" };
-  };
-
   const salvar = () => {
     if (!form.nome || !form.whatsapp || !form.tipoEvento || !form.data) {
       alert("Preencha pelo menos nome, WhatsApp, tipo de evento e data.");
       return;
     }
 
-    const idFinal = editandoId || criarIdSeguro();
-    const dataCadastroFinal = form.dataCadastro || new Date().toLocaleString("pt-BR");
+    const numeroCampo = (valor) => Number(String(valor || "0").replace(".", "").replace(",", ".")) || 0;
+    const totalEvento = numeroCampo(form.valor);
+    const entradaManual = numeroCampo(form.entrada);
+    const tipoPagamentoCadastro = form.pagamentoCadastroTipo || "nao";
+    const temPagamentoNoCadastro = tipoPagamentoCadastro !== "nao";
+    const valorRecebidoAgora = temPagamentoNoCadastro ? numeroCampo(form.pagamentoCadastroValor) : 0;
 
-    const eventoBase = {
+    if (temPagamentoNoCadastro && valorRecebidoAgora <= 0) {
+      alert("Informe o valor recebido agora ou escolha 'Não recebeu pagamento agora'.");
+      return;
+    }
+
+    if (tipoPagamentoCadastro === "total" && totalEvento > 0 && valorRecebidoAgora < totalEvento) {
+      const seguir = confirm(
+        `Você marcou PAGAMENTO TOTAL, mas o valor recebido (${moeda(valorRecebidoAgora)}) é menor que o valor total (${moeda(totalEvento)}).\n\nDeseja salvar como pagamento parcial/entrada?`
+      );
+      if (!seguir) return;
+    }
+
+    const ehPagamentoTotalNoCadastro = tipoPagamentoCadastro === "total" && (totalEvento === 0 || valorRecebidoAgora >= totalEvento);
+    const entradaDocumento = tipoPagamentoCadastro === "sinal"
+      ? (entradaManual > 0 ? entradaManual : valorRecebidoAgora)
+      : entradaManual;
+
+    const quitadoCalculado = ehPagamentoTotalNoCadastro || (totalEvento > 0 && entradaDocumento >= totalEvento);
+
+    const dadosEvento = {
       ...form,
-      id: idFinal,
-      dataCadastro: dataCadastroFinal,
+      entrada: String(entradaDocumento),
+      formaEntrada: temPagamentoNoCadastro ? (form.pagamentoCadastroForma || form.formaEntrada || "Pix") : (form.formaEntrada || ""),
+      formaPagamento: ehPagamentoTotalNoCadastro ? (form.pagamentoCadastroForma || form.formaPagamento || "Pix") : (form.formaPagamento || ""),
+      parcelas: form.pagamentoCadastroForma === "Cartão de crédito" && Number(form.pagamentoCadastroParcelas || 1) > 1 ? `${form.pagamentoCadastroParcelas}x` : (form.parcelas || ""),
       obs: juntarObservacoesJP(form.obsInternas ?? form.obs, form.obsExtras),
       horaInicio: normalizarHorarioManual(form.horaInicio) || form.horaInicio,
       horaFim: normalizarHorarioManual(form.horaFim) || form.horaFim,
-      status: form.status || "pre",
-      executado: Boolean(form.executado)
+      status: (form.status === "confirmado" || temPagamentoNoCadastro) ? "confirmado" : (form.status || "pre"),
+      quitado: quitadoCalculado,
+      executado: Boolean(form.executado),
+      pagamentoCadastroTipo: "nao",
+      pagamentoCadastroValor: "",
+      pagamentoCadastroContaId: "nubank",
+      pagamentoCadastroForma: "Pix",
+      pagamentoCadastroParcelas: "1",
+      pagamentoCadastroTaxa: "0",
+      pagamentoCadastroData: new Date().toISOString().slice(0, 10)
     };
 
-    const pagamentoCadastro = registrarPagamentoInicialDoCadastro(eventoBase);
+    const idFinal = editandoId || criarIdSeguro();
+    const historicoPagamento = temPagamentoNoCadastro
+      ? criarRegistroHistorico(
+          ehPagamentoTotalNoCadastro ? "Pagamento total registrado no cadastro" : "Entrada/sinal registrada no cadastro",
+          `${moeda(valorRecebidoAgora)} em ${contaPorId(form.pagamentoCadastroContaId).nome} via ${form.pagamentoCadastroForma || "Pix"}`
+        )
+      : null;
 
-    // Regra definitiva para não confundir:
-    // - Valor total é o preço do evento.
-    // - Entrada/sinal é SOMENTE o que entrou no caixa.
-    // - Em novo cadastro sem pagamento marcado, entrada fica 0.
-    // - Em edição, mantém a entrada já salva se nenhum novo pagamento for registrado.
-    const entradaAnterior = editandoId ? Number(eventoBase.entrada || 0) : 0;
-    const entradaComPagamentoInicial = pagamentoCadastro.entradaRegistrada > 0
-      ? entradaAnterior + pagamentoCadastro.entradaRegistrada
-      : entradaAnterior;
+    if (temPagamentoNoCadastro) {
+      const ehCartaoCredito = form.pagamentoCadastroForma === "Cartão de crédito";
+      const parcelas = ehCartaoCredito ? limitarNumero(form.pagamentoCadastroParcelas || 1, 1, 12) : 1;
+      const taxaCartao = ehCartaoCredito ? numeroCampo(form.pagamentoCadastroTaxa) : 0;
+      const valorTaxaTotal = Math.max((valorRecebidoAgora * taxaCartao) / 100, 0);
+      const valorLiquidoTotal = Math.max(valorRecebidoAgora - valorTaxaTotal, 0);
+      const grupoParcelamentoId = parcelas > 1 ? criarIdSeguro() : "";
 
-    const valorTotal = Number(eventoBase.valor || 0);
-    const quitadoAutomatico = valorTotal > 0 && entradaComPagamentoInicial >= valorTotal;
-
-    const dadosEvento = {
-      ...eventoBase,
-      entrada: String(entradaComPagamentoInicial),
-      formaEntrada: pagamentoCadastro.entradaRegistrada > 0 ? pagamentoInicialCadastro.formaPagamento : eventoBase.formaEntrada,
-      formaPagamento: eventoBase.formaPagamento || (pagamentoCadastro.entradaRegistrada > 0 ? "Entrada / sinal" : ""),
-      parcelas: pagamentoCadastro.parcelasTexto || eventoBase.parcelas,
-      quitado: quitadoAutomatico,
-      historico: [
-        criarRegistroHistorico(
-          editandoId ? "Cadastro atualizado" : "Cadastro criado",
-          pagamentoCadastro.entradaRegistrada > 0
-            ? `Cliente salvo e pagamento inicial registrado: ${moeda(pagamentoCadastro.entradaRegistrada)} em ${contaPorId(pagamentoInicialCadastro.contaId).nome}`
-            : (eventoBase.status === "confirmado" ? "Reserva confirmada" : "Pré-reserva/proposta")
-        ),
-        ...(Array.isArray(form.historico) ? form.historico : [])
-      ].slice(0, 50)
-    };
+      for (let i = 0; i < parcelas; i += 1) {
+        criarMovimentoCaixa({
+          tipo: "entrada",
+          data: somarMesesData(form.pagamentoCadastroData || new Date().toISOString().slice(0, 10), i),
+          descricao: parcelas > 1
+            ? `Parcela ${i + 1}/${parcelas} - ${ehPagamentoTotalNoCadastro ? "Pagamento total" : "Entrada/sinal"} - ${form.nome}`
+            : `${ehPagamentoTotalNoCadastro ? "Pagamento total" : "Entrada/sinal"} - ${form.nome}`,
+          categoria: ehPagamentoTotalNoCadastro ? "Pagamento de cliente" : "Entrada / sinal",
+          valor: parcelas > 1 ? valorLiquidoTotal / parcelas : valorLiquidoTotal,
+          contaId: form.pagamentoCadastroContaId || contaPorId("nubank")?.id || contasFinanceiras[0]?.id || "nubank",
+          formaPagamento: form.pagamentoCadastroForma || "Pix",
+          parcelas: String(parcelas),
+          parcelaNumero: parcelas > 1 ? String(i + 1) : "",
+          grupoParcelamentoId,
+          taxaCartao,
+          valorBruto: parcelas > 1 ? valorRecebidoAgora / parcelas : valorRecebidoAgora,
+          valorTaxa: parcelas > 1 ? valorTaxaTotal / parcelas : valorTaxaTotal,
+          eventoId: idFinal,
+          cliente: form.nome || "Cliente",
+          observacao: ehCartaoCredito && parcelas > 1
+            ? `Pagamento parcelado em ${parcelas}x. Valor bruto total: ${moeda(valorRecebidoAgora)}. Taxa: ${taxaCartao}%.`
+            : "Lançado automaticamente pelo cadastro."
+        });
+      }
+    }
 
     if (editandoId) {
-      setEventos((lista) => lista.map((e) => (e.id === editandoId ? dadosEvento : e)));
+      const atualizados = eventos.map((e) =>
+        e.id === editandoId
+          ? {
+              ...dadosEvento,
+              id: editandoId,
+              dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR"),
+              historico: [
+                criarRegistroHistorico("Cadastro atualizado", dadosEvento.quitado ? "Pagamento quitado" : dadosEvento.status === "confirmado" ? "Reserva confirmada" : "Pré-reserva/proposta"),
+                ...(historicoPagamento ? [historicoPagamento] : []),
+                ...(Array.isArray(e.historico) ? e.historico : [])
+              ].slice(0, 50)
+            }
+          : e
+      );
+      setEventos(atualizados);
     } else {
-      setEventos((lista) => [dadosEvento, ...lista]);
+      const novo = {
+        ...dadosEvento,
+        id: idFinal,
+        dataCadastro: new Date().toLocaleString("pt-BR"),
+        historico: [
+          criarRegistroHistorico("Cadastro criado", dadosEvento.quitado ? "Pagamento quitado" : dadosEvento.status === "confirmado" ? "Reserva confirmada" : "Pré-reserva/proposta"),
+          ...(historicoPagamento ? [historicoPagamento] : [])
+        ]
+      };
+      setEventos([novo, ...eventos]);
+      setBusca(novo.nome || "");
+      setFiltroStatus("todos");
     }
 
     limpar();
-    resetarPagamentoInicialCadastro();
-    abrirClienteSalvo(dadosEvento);
+    setAba("eventos");
   };
 
   const excluirEvento = (id) => {
@@ -2134,9 +2114,6 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
   };
 
   const editarEvento = (evento) => {
-    // Ao editar um cliente já salvo, não deixa o pagamento inicial ficar marcado por engano.
-    // Assim o sistema não duplica entrada no caixa e não joga Valor Total dentro de Entrada/Sinal.
-    resetarPagamentoInicialCadastro();
     setForm({
       ...formInicial,
       ...evento,
@@ -4391,10 +4368,9 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             setForm({
               ...form,
               pacote: pacoteEscolhido,
-              // O pacote sugere apenas o VALOR TOTAL.
-              // Entrada/sinal é registrada somente na área "Pagamento inicial no cadastro".
+              // O pacote mostra a sugestão, mas não apaga valor/sinal que você já digitou manualmente.
               valor: campoFoiPreenchido(form.valor) ? form.valor : (info ? String(info.valor) : ""),
-              entrada: editandoId ? form.entrada : "0",
+              entrada: campoFoiPreenchido(form.entrada) ? form.entrada : "0",
               formaEntrada: info && !form.formaEntrada ? "Pix" : form.formaEntrada,
               formaPagamento: info && !form.formaPagamento ? "Entrada / sinal" : form.formaPagamento
             });
@@ -4420,14 +4396,14 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
           {form.pacote && pacoteInfo(form.pacote) && (
             <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20, 83, 45, 0.28)" }}>
               <strong>🚀 Automação profissional ativada</strong><br />
-              Valor final da proposta: {moeda(campoFoiPreenchido(form.valor) ? form.valor : pacoteInfo(form.pacote).valor)}
+              Valor final da proposta: {moeda(campoFoiPreenchido(form.valor) ? form.valor : pacoteInfo(form.pacote).valor)} | Sinal: {moeda(campoFoiPreenchido(form.entrada) ? form.entrada : 0)}
               <br />
-              <span style={{ color: "#bbf7d0" }}>Sugestão original do pacote: {moeda(pacoteInfo(form.pacote).valor)}. O sinal/entrada só será lançado se você marcar o pagamento inicial abaixo.</span>
+              <span style={{ color: "#bbf7d0" }}>Sugestão original do pacote: {moeda(pacoteInfo(form.pacote).valor)} | Sinal sugerido: {moeda(pacoteInfo(form.pacote).entrada)}</span>
               <br />
               <span style={{ color: "#bbf7d0" }}>{pacoteInfo(form.pacote).descricao}</span>
               <br />
               <button style={estilos.botaoRoxo} onClick={confirmarValorManual}>Confirmar valor manual</button>
-              <button style={estilos.botao} onClick={() => aplicarValorDoPacote(form.pacote)}>Usar valor sugerido do pacote</button>
+              <button style={estilos.botao} onClick={() => aplicarValorDoPacote(form.pacote)}>Usar sugestão original do pacote</button>
               <button
                 style={estilos.botao}
                 onClick={() => setForm({ ...form, pacote: "", pacotePersonalizado: "" })}
@@ -4439,107 +4415,166 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             </div>
           )}
 
-          <label style={{ fontWeight: "bold", color: "#38bdf8" }}>VALOR TOTAL:</label><input ref={valorInputRef} style={{ ...estilos.input, borderColor: "#38bdf8" }} placeholder="Digite aqui o valor final combinado" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} />
-          <div style={{ ...estilos.card, borderColor: "#facc15", background: "rgba(250,204,21,0.08)" }}>
-            <strong style={{ color: "#facc15" }}>🧾 Entrada / sinal</strong>
-            <p style={{ margin: "6px 0", color: "#c4b5fd" }}>
-              Você não precisa preencher entrada duas vezes. Se o cliente pagou agora, marque "Registrar esse pagamento no caixa ao salvar" logo abaixo e digite o valor recebido lá.
-            </p>
-            <strong>Entrada registrada neste cadastro: {moeda(form.entrada || 0)}</strong>
-          </div>
-          <label style={{ fontWeight: "bold" }}>CUSTO DO EVENTO:</label><input style={estilos.input} placeholder="Ex: transporte, ajudante, aluguel, combustível..." value={form.custo || ""} onChange={(e) => setForm({ ...form, custo: e.target.value })} />
+          <label style={{ fontWeight: "bold", color: "#38bdf8" }}>VALOR TOTAL DO EVENTO:</label>
+          <input
+            ref={valorInputRef}
+            style={{ ...estilos.input, borderColor: "#38bdf8" }}
+            placeholder="Preço final combinado com o cliente. Ex: 700"
+            value={form.valor}
+            onChange={(e) => setForm({ ...form, valor: e.target.value })}
+          />
+
+          <label style={{ fontWeight: "bold", color: "#facc15" }}>ENTRADA / SINAL COMBINADO:</label>
+          <input
+            ref={entradaInputRef}
+            style={{ ...estilos.input, borderColor: "#facc15" }}
+            placeholder="Só preencha se foi entrada/sinal. Se pagou tudo, pode deixar 0."
+            value={form.entrada}
+            onChange={(e) => setForm({ ...form, entrada: e.target.value })}
+          />
+
+          <label style={{ fontWeight: "bold" }}>CUSTO DO EVENTO:</label>
+          <input
+            style={estilos.input}
+            placeholder="Ex: transporte, ajudante, aluguel, combustível..."
+            value={form.custo || ""}
+            onChange={(e) => setForm({ ...form, custo: e.target.value })}
+          />
+
           <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20, 83, 45, 0.20)" }}>
             <strong>📈 Lucro estimado:</strong> {moeda(Number(form.valor || 0) - Number(form.custo || 0))}
             <br />
             <span style={{ color: "#bbf7d0" }}>Esse cálculo usa Valor Total - Custo do Evento.</span>
           </div>
-          <div style={{ ...estilos.card, borderColor: pagamentoInicialCadastro.ativo ? "#22c55e" : "#38bdf8", background: pagamentoInicialCadastro.ativo ? "rgba(20,83,45,0.22)" : "rgba(14,165,233,0.12)" }}>
-            <h3>💳 Pagamento inicial no cadastro</h3>
-            <p style={{ color: "#c4b5fd" }}>
-              Use essa área quando o cliente já pagou sinal/entrada enquanto você ainda está cadastrando. Ao salvar, o sistema já lança no caixa e abre a ficha do cliente salvo.
+
+          <div style={{ ...estilos.card, borderColor: form.pagamentoCadastroTipo && form.pagamentoCadastroTipo !== "nao" ? "#22c55e" : "#38bdf8", background: form.pagamentoCadastroTipo && form.pagamentoCadastroTipo !== "nao" ? "rgba(20,83,45,0.20)" : "rgba(14,165,233,0.10)" }}>
+            <h3 style={{ marginTop: 0 }}>💳 Pagamento recebido agora?</h3>
+            <p style={{ color: "#c4b5fd", marginTop: -4 }}>
+              Escolha aqui se o cliente já pagou. É nessa área que você informa o banco/conta onde entrou o Pix, cartão ou dinheiro.
             </p>
 
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: "bold", marginBottom: 10 }}>
-              <input
-                type="checkbox"
-                checked={Boolean(pagamentoInicialCadastro.ativo)}
-                onChange={(e) => setPagamentoInicialCadastro((atual) => ({
-                  ...atual,
-                  ativo: e.target.checked,
-                  // Não preenche sozinho pelo Valor Total. Você digita aqui somente o que realmente entrou no caixa.
-                  valor: e.target.checked ? atual.valor : ""
-                }))}
-              />
-              Registrar esse pagamento no caixa ao salvar
-            </label>
+            <label style={{ fontWeight: 900 }}>SITUAÇÃO DO PAGAMENTO:</label>
+            <select
+              style={estilos.input}
+              value={form.pagamentoCadastroTipo || "nao"}
+              onChange={(e) => {
+                const tipo = e.target.value;
+                const valorTotal = String(form.valor || "").trim();
+                const entradaAtual = String(form.entrada || "").trim();
+                setForm({
+                  ...form,
+                  pagamentoCadastroTipo: tipo,
+                  pagamentoCadastroValor:
+                    tipo === "total" ? valorTotal :
+                    tipo === "sinal" ? (entradaAtual && entradaAtual !== "0" ? entradaAtual : "") :
+                    "",
+                  pagamentoCadastroForma: form.pagamentoCadastroForma || "Pix",
+                  pagamentoCadastroContaId: form.pagamentoCadastroContaId || contaPorId("nubank")?.id || contasFinanceiras[0]?.id || "nubank",
+                  pagamentoCadastroData: form.pagamentoCadastroData || new Date().toISOString().slice(0, 10),
+                  formaPagamento: tipo === "total" ? "Valor total" : tipo === "sinal" ? "Entrada / sinal" : form.formaPagamento,
+                  status: tipo === "nao" ? form.status : "confirmado"
+                });
+              }}
+            >
+              <option value="nao">Não recebeu pagamento agora</option>
+              <option value="sinal">Recebeu entrada / sinal</option>
+              <option value="total">Recebeu pagamento total</option>
+            </select>
 
-            {pagamentoInicialCadastro.ativo && (
+            {form.pagamentoCadastroTipo && form.pagamentoCadastroTipo !== "nao" && (
               <>
-                <label style={{ fontWeight: "bold", color: "#facc15" }}>VALOR RECEBIDO AGORA:</label>
-                <input
-                  style={{ ...estilos.input, borderColor: "#facc15" }}
-                  placeholder="Ex: 125 (somente o que recebeu agora, não o valor total)"
-                  value={pagamentoInicialCadastro.valor}
-                  onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, valor: e.target.value })}
-                />
+                <div style={estilos.miniInfo}>
+                  <div>
+                    <label style={{ fontWeight: 900, color: form.pagamentoCadastroTipo === "total" ? "#22c55e" : "#facc15" }}>
+                      {form.pagamentoCadastroTipo === "total" ? "VALOR TOTAL RECEBIDO AGORA:" : "VALOR DO SINAL RECEBIDO AGORA:"}
+                    </label>
+                    <input
+                      style={{ ...estilos.input, borderColor: form.pagamentoCadastroTipo === "total" ? "#22c55e" : "#facc15" }}
+                      placeholder={form.pagamentoCadastroTipo === "total" ? "Ex: 700" : "Ex: 200"}
+                      value={form.pagamentoCadastroValor || ""}
+                      onChange={(e) => {
+                        const valor = e.target.value;
+                        setForm({
+                          ...form,
+                          pagamentoCadastroValor: valor,
+                          entrada: form.pagamentoCadastroTipo === "sinal" ? valor : form.entrada
+                        });
+                      }}
+                    />
+                  </div>
 
-                <label style={{ fontWeight: "bold" }}>CONTA/BANCO ONDE ENTROU:</label>
-                <select
-                  style={estilos.input}
-                  value={pagamentoInicialCadastro.contaId}
-                  onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, contaId: e.target.value })}
-                >
-                  {contasFinanceiras.map((conta) => <option key={conta.id} value={conta.id}>{conta.nome}</option>)}
-                </select>
+                  <div>
+                    <label style={{ fontWeight: 900 }}>CONTA/BANCO ONDE ENTROU:</label>
+                    <select
+                      style={estilos.input}
+                      value={form.pagamentoCadastroContaId || contaPorId("nubank")?.id || contasFinanceiras[0]?.id || "nubank"}
+                      onChange={(e) => setForm({ ...form, pagamentoCadastroContaId: e.target.value })}
+                    >
+                      {contasFinanceiras.map((conta) => <option key={conta.id} value={conta.id}>{conta.nome}</option>)}
+                    </select>
+                  </div>
 
-                <label style={{ fontWeight: "bold" }}>FORMA DE PAGAMENTO:</label>
-                <select
-                  style={estilos.input}
-                  value={pagamentoInicialCadastro.formaPagamento}
-                  onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, formaPagamento: e.target.value })}
-                >
-                  <option value="Pix">Pix</option>
-                  <option value="Dinheiro">Dinheiro</option>
-                  <option value="Cartão de débito">Cartão de débito</option>
-                  <option value="Cartão de crédito">Cartão de crédito</option>
-                  <option value="Transferência bancária">Transferência bancária</option>
-                </select>
+                  <div>
+                    <label style={{ fontWeight: 900 }}>FORMA DO RECEBIMENTO:</label>
+                    <select
+                      style={estilos.input}
+                      value={form.pagamentoCadastroForma || "Pix"}
+                      onChange={(e) => setForm({ ...form, pagamentoCadastroForma: e.target.value })}
+                    >
+                      <option value="Pix">Pix</option>
+                      <option value="Dinheiro">Dinheiro</option>
+                      <option value="Cartão de débito">Cartão de débito</option>
+                      <option value="Cartão de crédito">Cartão de crédito</option>
+                      <option value="Transferência bancária">Transferência bancária</option>
+                    </select>
+                  </div>
 
-                {pagamentoInicialCadastro.formaPagamento === "Cartão de crédito" && (
-                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <label style={{ fontWeight: 900 }}>DATA DO RECEBIMENTO:</label>
+                    <input
+                      type="date"
+                      style={estilos.input}
+                      value={form.pagamentoCadastroData || new Date().toISOString().slice(0, 10)}
+                      onChange={(e) => setForm({ ...form, pagamentoCadastroData: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                {form.pagamentoCadastroForma === "Cartão de crédito" && (
+                  <div style={estilos.miniInfo}>
                     <div>
-                      <label style={{ fontWeight: "bold" }}>PARCELAS:</label>
+                      <label style={{ fontWeight: 900 }}>PARCELAS DO CARTÃO:</label>
                       <select
                         style={estilos.input}
-                        value={pagamentoInicialCadastro.parcelas || "1"}
-                        onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, parcelas: e.target.value })}
+                        value={form.pagamentoCadastroParcelas || "1"}
+                        onChange={(e) => setForm({ ...form, pagamentoCadastroParcelas: e.target.value })}
                       >
-                        {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((n) => <option key={n} value={n}>{n}x</option>)}
+                        {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}x</option>)}
                       </select>
                     </div>
                     <div>
-                      <label style={{ fontWeight: "bold" }}>TAXA DA MAQUININHA (%):</label>
+                      <label style={{ fontWeight: 900 }}>TAXA DA MAQUININHA %:</label>
                       <input
                         style={estilos.input}
                         placeholder="Ex: 3.5"
-                        value={pagamentoInicialCadastro.taxaCartao || ""}
-                        onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, taxaCartao: e.target.value })}
+                        value={form.pagamentoCadastroTaxa || ""}
+                        onChange={(e) => setForm({ ...form, pagamentoCadastroTaxa: e.target.value })}
                       />
                     </div>
                   </div>
                 )}
 
-                <label style={{ fontWeight: "bold" }}>DATA DO RECEBIMENTO / 1ª PARCELA:</label>
-                <input
-                  type="date"
-                  style={estilos.input}
-                  value={pagamentoInicialCadastro.data}
-                  onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, data: e.target.value })}
-                />
+                <div style={{ color: form.pagamentoCadastroTipo === "total" ? "#22c55e" : "#facc15", fontWeight: 900 }}>
+                  {form.pagamentoCadastroTipo === "total"
+                    ? "✅ Ao salvar, o cliente fica QUITADO e o valor entra no caixa da conta escolhida."
+                    : "🟡 Ao salvar, o sinal entra no caixa e o restante continua como pendente."
+                  }
+                </div>
               </>
             )}
           </div>
-<label style={{ fontWeight: "bold" }}>FORMA DA ENTRADA / SINAL:</label>
+
+          <label style={{ fontWeight: "bold" }}>FORMA DA ENTRADA / SINAL:</label>
           <select style={estilos.input} value={form.formaEntrada || ""} onChange={(e) => setForm({ ...form, formaEntrada: e.target.value })}>
             <option value="">Forma da entrada / sinal</option>
             <option value="Pix">Pix</option>
@@ -4548,7 +4583,8 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             <option value="Cartão de crédito">Cartão de crédito</option>
             <option value="Transferência bancária">Transferência bancária</option>
           </select>
-<label style={{ fontWeight: "bold" }}>FORMA DE PAGAMENTO:</label>
+
+          <label style={{ fontWeight: "bold" }}>FORMA DE PAGAMENTO GERAL:</label>
           <select style={estilos.input} value={form.formaPagamento || ""} onChange={(e) => setForm({ ...form, formaPagamento: e.target.value })}>
             <option value="">Selecione a forma de pagamento</option>
             <option value="Entrada / sinal">Entrada / sinal</option>
@@ -4572,7 +4608,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             onChange={(e) => setForm({ ...form, status: e.target.value, quitado: e.target.value === "pre" ? false : form.quitado })}
           >
             <option value="pre">Pré-reserva / proposta / aguardando sinal</option>
-            <option value="confirmado">Reserva confirmada com sinal</option>
+            <option value="confirmado">Reserva confirmada com sinal ou pagamento</option>
           </select>
           <div style={{ ...estilos.card, borderColor: form.status === "pre" ? "orange" : "#22c55e", background: form.status === "pre" ? "rgba(58, 46, 0, 0.35)" : "rgba(20, 83, 45, 0.28)" }}>
             {form.status === "pre"
@@ -4596,7 +4632,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             placeholder="Digite aqui observações para aparecer na proposta, contrato e recibo. Esse campo é separado das observações de cima."
           />
 
-<button style={estilos.botaoRoxo} onClick={salvar}>{editandoId ? "Salvar edição e abrir cliente" : "Salvar cadastro e abrir cliente"}</button>
+<button style={estilos.botaoRoxo} onClick={salvar}>{editandoId ? "Salvar edição" : "Salvar"}</button>
           <button style={estilos.botao} onClick={() => abrirWhatsAppProposta(form)}>Enviar proposta no WhatsApp</button>
           <button style={estilos.botaoRoxo} onClick={() => gerarProposta({ ...form, id: editandoId || Date.now(), dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR") })}>Proposta PDF agora</button>
           <button style={estilos.botao} onClick={() => gerarContrato({ ...form, id: editandoId || Date.now(), dataCadastro: form.dataCadastro || new Date().toLocaleString("pt-BR"), status: "confirmado" })}>Contrato PDF agora</button>
