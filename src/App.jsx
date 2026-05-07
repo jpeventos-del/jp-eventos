@@ -2093,6 +2093,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       };
 
       setEventos([novoCliente, ...eventos]);
+      setBusca(novoCliente.nome || novoCliente.whatsapp || "");
       limpar();
       setClienteAbertoChave(chaveClienteJP(novoCliente));
       setAba("clientes");
@@ -3588,6 +3589,37 @@ Deseja remover esses lançamentos também?
     return Boolean(evento.quitado) || (total > 0 && saldoPendenteEventoJP(evento) <= 0);
   };
 
+  const indicadorFinanceiroEvento = (evento = {}) => {
+    const total = valorNumericoJP(evento.valor);
+    const entrada = valorNumericoJP(evento.entrada);
+    const pendente = saldoPendenteEventoJP(evento);
+
+    if (evento.executado) {
+      return { cor: "#22c55e", texto: "Executado", emoji: "✅", prioridade: 4 };
+    }
+
+    if (eventoQuitadoJP(evento)) {
+      return { cor: "#38bdf8", texto: "Pago/quitado", emoji: "💙", prioridade: 3 };
+    }
+
+    if (entrada > 0 && pendente > 0) {
+      return { cor: "#facc15", texto: "Sinal pago", emoji: "🟡", prioridade: 2, corExtra: "#ef4444" };
+    }
+
+    if (total > 0 && pendente > 0) {
+      return { cor: "#ef4444", texto: "Pendente", emoji: "🔴", prioridade: 1 };
+    }
+
+    return { cor: "#8b5cf6", texto: "Agendado", emoji: "🟣", prioridade: 0 };
+  };
+
+  const resumoVisualDiaAgenda = (listaDia = []) => {
+    const indicadores = listaDia.map(indicadorFinanceiroEvento);
+    const principal = indicadores.reduce((maior, item) => item.prioridade > maior.prioridade ? item : maior, { cor: "#111827", prioridade: -1 });
+    return { indicadores, principal };
+  };
+
+
   const usarDataNoCadastroSeguro = (dataAlvo) => {
     const dataSegura = String(dataAlvo || "").trim();
     if (!dataSegura) {
@@ -3627,7 +3659,36 @@ Deseja remover esses lançamentos também?
       }
       return acc;
     }, {})
-  ).sort((a, b) => b.eventos.length - a.eventos.length || String(a.nome).localeCompare(String(b.nome)));
+  ).sort((a, b) => {
+    const semEventoA = a.eventos.length === 0 ? 1 : 0;
+    const semEventoB = b.eventos.length === 0 ? 1 : 0;
+    if (semEventoA !== semEventoB) return semEventoB - semEventoA;
+    return b.eventos.length - a.eventos.length || String(a.nome).localeCompare(String(b.nome));
+  });
+
+  const clientesBuscaGlobalJP = clientesAgrupadosJP.filter((cliente) => {
+    const termo = normalizarTexto(busca || "");
+    if (!termo) return false;
+    const textoCliente = normalizarTexto(`
+      ${cliente.nome || ""}
+      ${cliente.whatsapp || ""}
+      ${cliente.cpf || ""}
+      ${cliente.endereco || ""}
+      ${cliente.cidade || ""}
+      ${cliente.bairro || ""}
+      ${cliente.eventos.map((ev) => `${ev.tipoEvento || ""} ${ev.servicosTexto || ""} ${ev.pacote || ""} ${ev.pacotePersonalizado || ""} ${ev.data || ""} ${dataBR(ev.data) || ""}`).join(" ")}
+    `);
+    return textoCliente.includes(termo);
+  });
+
+  const clientesSemEventoJP = clientesAgrupadosJP.filter((cliente) => cliente.eventos.length === 0);
+
+  const abrirClienteDaBuscaJP = (cliente) => {
+    setClienteAbertoChave(cliente.chave);
+    setAba("clientes");
+    setMenuAberto(false);
+    setTimeout(() => document.getElementById(`cliente-${cliente.chave}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+  };
 
   const salvarPagamentoEvento = () => {
     if (!pagamentoEvento) return;
@@ -4564,10 +4625,10 @@ Deseja remover esses lançamentos também?
   return (
     <div style={estilos.pagina} translate="no">
       <h1 style={estilos.titulo}>JP Eventos Pro</h1>
-      <p style={estilos.subtitulo}>Sistema completo com eventos, contratos, recibos, atalhos por cliente, caixa por contas/bancos, forma de pagamento separada, cartão parcelado até 12x e calendário financeiro. v26.7 exclusão visual: apagar evento individual ou cliente completo com confirmação em botões.</p>
+      <p style={estilos.subtitulo}>Sistema completo com eventos, contratos, recibos, atalhos por cliente, caixa por contas/bancos, forma de pagamento separada, cartão parcelado até 12x e calendário financeiro. v26.9 agenda visual: dias com bolinhas/faixas por status financeiro e busca global de clientes.</p>
 
       <input
-        placeholder="Buscar por cliente, data, status, cidade, pacote..."
+        placeholder="Buscar em tudo: cliente, WhatsApp, CPF, evento, serviço, data, cidade, pacote..."
         value={busca}
         onChange={(e) => {
           setBusca(e.target.value);
@@ -5234,6 +5295,23 @@ Usar essa data no cadastro
       {aba === "eventos" && (
         <>
           <h2>Eventos / Serviços</h2>
+          {busca.trim() && clientesBuscaGlobalJP.length > 0 && (
+            <div style={{ ...estilos.card, borderColor: "#38bdf8", background: "rgba(14,165,233,0.12)" }}>
+              <h3 style={{ marginTop: 0 }}>🔎 Resultado geral da busca</h3>
+              <p style={{ color: "#c4b5fd" }}>Encontrei cliente(s) também. Use os atalhos abaixo para não ficar procurando.</p>
+              {clientesBuscaGlobalJP.map((cliente) => (
+                <div key={cliente.chave} style={{ ...estilos.cardInterno, marginBottom: 8 }}>
+                  <strong>👤 {cliente.nome}</strong><br />
+                  <span>WhatsApp: {cliente.whatsapp || "Não informado"} | Documento: {cliente.cpf || "Não informado"} | Eventos/serviços: {cliente.eventos.length}</span>
+                  <div style={estilos.grupoAcoes}>
+                    <button style={estilos.botaoRoxo} onClick={() => abrirClienteDaBuscaJP(cliente)}>Abrir cliente</button>
+                    <button style={estilos.botao} onClick={() => novoEventoServicoParaCliente(cliente, "eventos")}>+ Criar evento/serviço</button>
+                    <button style={estilos.botao} onClick={() => { setBusca(cliente.nome); setFiltroStatus("todos"); setEventoExpandidoId(null); setModoEventosExpandido(false); setTituloListaAberta(`Eventos/serviços de ${cliente.nome}`); }}>Ver eventos deste cliente</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20,83,45,0.12)" }}>
             <h3 style={{ marginTop: 0 }}>➕ Criar novo evento/serviço</h3>
             <p style={{ color: "#c4b5fd" }}>Para criar um evento novo, escolha primeiro o cliente. Assim o cadastro do cliente não precisa ser repetido.</p>
@@ -5297,6 +5375,21 @@ Usar essa data no cadastro
         <>
           <h2>Clientes</h2>
           <p style={{ color: "#c4b5fd" }}>Aqui os clientes aparecem agrupados. Cada cliente pode ter vários eventos/serviços.</p>
+          {clientesSemEventoJP.length > 0 && (
+            <div style={{ ...estilos.card, borderColor: "#facc15", background: "rgba(250,204,21,0.10)" }}>
+              <h3 style={{ marginTop: 0 }}>🆕 Clientes salvos sem evento/serviço ainda</h3>
+              <p style={{ color: "#c4b5fd" }}>Esses clientes foram cadastrados, mas ainda falta criar o evento/serviço deles.</p>
+              {clientesSemEventoJP.map((cliente) => (
+                <div key={cliente.chave} style={{ ...estilos.cardInterno, marginBottom: 8 }}>
+                  <strong>{cliente.nome}</strong> — WhatsApp: {cliente.whatsapp || "Não informado"}
+                  <div style={estilos.grupoAcoes}>
+                    <button style={estilos.botaoRoxo} onClick={() => abrirClienteDaBuscaJP(cliente)}>Abrir cliente</button>
+                    <button style={estilos.botao} onClick={() => novoEventoServicoParaCliente(cliente, "clientes")}>+ Criar evento/serviço agora</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           {clientesAgrupadosJP.length === 0 && <p>Nenhum cliente salvo ainda.</p>}
           {clientesAgrupadosJP.map((cliente) => (
             <div id={`cliente-${cliente.chave}`} key={cliente.chave} style={{ ...estilos.card, borderColor: cliente.pendente > 0 ? "#f59e0b" : "#22c55e" }}>
@@ -5380,28 +5473,68 @@ Usar essa data no cadastro
               ))}
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(7, minmax(42px, 1fr))" : "repeat(7, 1fr)", gap: isMobile ? 4 : 6, overflowX: "auto" }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(7, minmax(54px, 1fr))" : "repeat(7, 1fr)", gap: isMobile ? 5 : 6, overflowX: "auto" }}>
               {diasCalendario.map((dia, index) => {
-                const qtd = dia ? eventosDoMes.filter((e) => Number(e.data.split("-")[2]) === dia).length : 0;
+                const eventosDoDiaCalendario = dia ? eventosDoMes.filter((e) => Number(String(e.data || "").split("-")[2]) === dia) : [];
+                const qtd = eventosDoDiaCalendario.length;
+                const visualDia = resumoVisualDiaAgenda(eventosDoDiaCalendario);
+                const temParcialComPendencia = eventosDoDiaCalendario.some((ev) => {
+                  const ind = indicadorFinanceiroEvento(ev);
+                  return Boolean(ind.corExtra);
+                });
                 return (
                   <button
                     key={`${dia}-${index}`}
                     disabled={!dia}
                     onClick={() => setDiaSelecionado(dia)}
+                    title={qtd > 0 ? `${qtd} evento(s) neste dia` : "Sem evento"}
                     style={{
-                      minHeight: isMobile ? 44 : 54,
-                      borderRadius: 8,
-                      border: diaSelecionado === dia ? "2px solid white" : "1px solid #374151",
-                      background: qtd > 0 ? "#6c2bd9" : "#111827",
+                      minHeight: isMobile ? 58 : 68,
+                      borderRadius: 10,
+                      border: diaSelecionado === dia ? "2px solid white" : qtd > 0 ? `1px solid ${visualDia.principal.cor}` : "1px solid #374151",
+                      background: qtd > 0 ? "linear-gradient(135deg, #4c1d95, #6d28d9)" : "#111827",
                       color: dia ? "white" : "transparent",
-                      cursor: dia ? "pointer" : "default"
+                      cursor: dia ? "pointer" : "default",
+                      position: "relative",
+                      overflow: "hidden",
+                      padding: isMobile ? "7px 4px" : "8px 6px"
                     }}
                   >
-                    <strong>{dia || "."}</strong>
-                    {qtd > 0 && <div style={{ fontSize: isMobile ? 10 : 12 }}>{qtd} evento(s)</div>}
+                    {qtd > 0 && (
+                      <div style={{ position: "absolute", left: 0, right: 0, top: 0, height: 5, display: "flex" }}>
+                        {visualDia.indicadores.slice(0, 4).map((ind, i) => (
+                          <span key={i} style={{ flex: 1, background: ind.cor }} />
+                        ))}
+                      </div>
+                    )}
+                    {temParcialComPendencia && (
+                      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 4, display: "flex" }}>
+                        <span style={{ flex: 1, background: "#facc15" }} />
+                        <span style={{ flex: 1, background: "#ef4444" }} />
+                      </div>
+                    )}
+                    <strong style={{ fontSize: isMobile ? 15 : 17 }}>{dia || "."}</strong>
+                    {qtd > 0 && (
+                      <>
+                        <div style={{ fontSize: isMobile ? 10 : 12, marginTop: 3 }}>{qtd} evento(s)</div>
+                        <div style={{ display: "flex", justifyContent: "center", gap: 3, marginTop: 4, flexWrap: "wrap" }}>
+                          {visualDia.indicadores.slice(0, 6).map((ind, i) => (
+                            <span key={i} title={ind.texto} style={{ width: isMobile ? 7 : 9, height: isMobile ? 7 : 9, borderRadius: 999, background: ind.cor, border: "1px solid rgba(255,255,255,0.65)", display: "inline-block" }} />
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </button>
                 );
               })}
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12, color: "#c4b5fd", fontSize: isMobile ? 11 : 12 }}>
+              <span><b style={{ color: "#8b5cf6" }}>●</b> Agendado</span>
+              <span><b style={{ color: "#38bdf8" }}>●</b> Pago/quitado</span>
+              <span><b style={{ color: "#facc15" }}>●</b> Sinal/parcial</span>
+              <span><b style={{ color: "#ef4444" }}>●</b> Pendente</span>
+              <span><b style={{ color: "#22c55e" }}>●</b> Executado</span>
             </div>
           </div>
 
