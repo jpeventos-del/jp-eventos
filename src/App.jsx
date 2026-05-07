@@ -49,6 +49,7 @@ export default function App() {
     valor: "",
     entrada: "",
     custo: "",
+    custoDescricao: "",
     formaEntrada: "",
     formaPagamento: "",
     parcelas: "",
@@ -367,6 +368,7 @@ export default function App() {
     valor: row.valor === null || row.valor === undefined ? "" : String(row.valor),
     entrada: row.entrada === null || row.entrada === undefined ? "" : String(row.entrada),
     custo: row.custo === null || row.custo === undefined ? "" : String(row.custo),
+    custoDescricao: extrairCustoDescricaoJP(row.obs || ""),
     formaEntrada: row.forma_entrada || "",
     formaPagamento: row.forma_pagamento || "",
     parcelas: row.parcelas || "",
@@ -755,15 +757,41 @@ Se aparecer o botão automático de instalação, use ele primeiro.`);
     if (valor === undefined || valor === null || valor === "") return 0;
     if (typeof valor === "number") return Number.isFinite(valor) ? valor : 0;
 
-    const texto = String(valor).trim();
+    let texto = String(valor).trim();
     if (!texto) return 0;
 
-    const achou = texto.match(/-?\d+(?:[.,]\d{1,2})?/);
+    texto = texto.replace(/R\$/gi, "").replace(/\s/g, "");
+
+    if (texto.includes(",") && texto.includes(".")) {
+      texto = texto.replace(/\./g, "").replace(",", ".");
+    } else {
+      texto = texto.replace(",", ".");
+    }
+
+    const achou = texto.match(/-?\d+(?:\.\d+)?/);
     if (!achou) return 0;
 
-    const numero = Number(achou[0].replace(",", "."));
+    const numero = Number(achou[0]);
     return Number.isFinite(numero) ? numero : 0;
   };
+
+  const extrairCustoDescricaoJP = (obs = "") => {
+    const linha = String(obs || "")
+      .split("\n")
+      .find((item) => normalizarTexto(item).startsWith("custo do evento:"));
+    if (!linha) return "";
+    return linha.split(":").slice(1).join(":").trim();
+  };
+
+  const removerCustoDescricaoJP = (obs = "") =>
+    String(obs || "")
+      .split("\n")
+      .filter((linha) => !normalizarTexto(linha).startsWith("custo do evento:"))
+      .join("\n")
+      .trim();
+
+  const custoDescricaoFinalJP = (evento) =>
+    String(evento?.custoDescricao || extrairCustoDescricaoJP(evento?.obsInternas || evento?.obs || "") || "").trim();
 
   const moeda = (valor) =>
     valorNumericoJP(valor).toLocaleString("pt-BR", {
@@ -1997,7 +2025,14 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       return;
     }
 
-    const numeroCampo = (valor) => Number(String(valor || "0").replace(".", "").replace(",", ".")) || 0;
+    const custoDescricaoLimpa = String(form.custoDescricao || "").trim();
+    const obsInternasSemCusto = removerCustoDescricaoJP(form.obsInternas ?? form.obs);
+    const obsInternasComCusto = [
+      obsInternasSemCusto,
+      custoDescricaoLimpa ? `Custo do evento: ${custoDescricaoLimpa}` : ""
+    ].filter(Boolean).join("\n");
+
+    const numeroCampo = (valor) => valorNumericoJP(valor);
     const totalEvento = numeroCampo(form.valor);
     const entradaManual = numeroCampo(form.entrada);
     const tipoPagamentoCadastro = form.pagamentoCadastroTipo || "nao";
@@ -2026,10 +2061,12 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     const dadosEvento = {
       ...form,
       entrada: String(entradaDocumento),
+      custoDescricao: custoDescricaoLimpa,
+      obsInternas: obsInternasComCusto,
       formaEntrada: temPagamentoNoCadastro ? (form.pagamentoCadastroForma || form.formaEntrada || "Pix") : (form.formaEntrada || ""),
       formaPagamento: ehPagamentoTotalNoCadastro ? (form.pagamentoCadastroForma || form.formaPagamento || "Pix") : (form.formaPagamento || ""),
       parcelas: form.pagamentoCadastroForma === "Cartão de crédito" && Number(form.pagamentoCadastroParcelas || 1) > 1 ? `${form.pagamentoCadastroParcelas}x` : (form.parcelas || ""),
-      obs: juntarObservacoesJP(form.obsInternas ?? form.obs, form.obsExtras),
+      obs: juntarObservacoesJP(obsInternasComCusto, form.obsExtras),
       horaInicio: normalizarHorarioManual(form.horaInicio) || form.horaInicio,
       horaFim: normalizarHorarioManual(form.horaFim) || form.horaFim,
       status: (form.status === "confirmado" || temPagamentoNoCadastro) ? "confirmado" : (form.status || "pre"),
@@ -2131,7 +2168,8 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     setForm({
       ...formInicial,
       ...evento,
-      obsInternas: observacoesInternasJP(evento),
+      custoDescricao: custoDescricaoFinalJP(evento),
+      obsInternas: removerCustoDescricaoJP(observacoesInternasJP(evento)),
       obsExtras: observacoesExtrasJP(evento),
       obs: juntarObservacoesJP(observacoesInternasJP(evento), observacoesExtrasJP(evento))
     });
@@ -2496,6 +2534,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       `Pacote: ${e.pacote === "Outro" ? e.pacotePersonalizado : e.pacote || "Não informado"}`,
       `Valor total: ${moeda(total)}`,
       `Entrada / sinal: ${moeda(entrada)}`,
+      valorNumericoJP(e.custo) > 0 ? `Custo do evento: ${moeda(e.custo)}${custoDescricaoFinalJP(e) ? ` - ${custoDescricaoFinalJP(e)}` : ""}` : "",
       `Forma da entrada: ${e.formaEntrada || "Não informada"}`,
       `Forma de pagamento: ${e.formaPagamento || "Não informada"}`,
       e.parcelas ? `Parcelas: ${e.parcelas}` : "",
@@ -3992,6 +4031,9 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             <span style={{ color: "#facc15" }}>Entrada / sinal: <strong>{moeda(entrada)}</strong></span>
             <span style={{ color: pendente > 0 ? "#ef4444" : "#22c55e" }}>Pendente: <strong>{moeda(pendente)}</strong></span>
             <span>Lucro estimado: <strong>{moeda(lucro)}</strong></span>
+            {valorNumericoJP(e.custo) > 0 && (
+              <span style={{ color: "#c4b5fd" }}>Custo: <strong>{moeda(e.custo)}</strong>{custoDescricaoFinalJP(e) ? ` - ${custoDescricaoFinalJP(e)}` : ""}</span>
+            )}
           </div>
         </div>
 
@@ -4450,15 +4492,23 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
           <label style={{ fontWeight: "bold" }}>CUSTO DO EVENTO (VALOR EM R$):</label>
           <input
             style={estilos.input}
-            placeholder="Digite só o valor do custo. Ex: 80 ou 80,50"
+            placeholder="Digite só o valor. Ex: 100"
             value={form.custo || ""}
             onChange={(e) => setForm({ ...form, custo: e.target.value })}
           />
 
+          <label style={{ fontWeight: "bold" }}>DESCRIÇÃO DO CUSTO:</label>
+          <input
+            style={estilos.input}
+            placeholder="Ex: combustível, ajudante, alimentação, aluguel de equipamento..."
+            value={form.custoDescricao || ""}
+            onChange={(e) => setForm({ ...form, custoDescricao: e.target.value })}
+          />
+
           <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20, 83, 45, 0.20)" }}>
-            <strong>📈 Lucro estimado:</strong> {moeda(valorNumericoJP(form.valor) - valorNumericoJP(form.custo))}
+            <strong>📈 Lucro estimado:</strong> {moeda(Math.max(valorNumericoJP(form.valor) - valorNumericoJP(form.custo), 0))}
             <br />
-            <span style={{ color: "#bbf7d0" }}>Digite apenas o valor do custo. O cálculo usa Valor Total - Custo do Evento.</span>
+            <span style={{ color: "#bbf7d0" }}>Atualiza na hora: Valor total {moeda(form.valor)} - Custo {moeda(form.custo)}{form.custoDescricao ? ` (${form.custoDescricao})` : ""}.</span>
           </div>
 
           <div style={{ ...estilos.card, borderColor: form.pagamentoCadastroTipo && form.pagamentoCadastroTipo !== "nao" ? "#22c55e" : "#38bdf8", background: form.pagamentoCadastroTipo && form.pagamentoCadastroTipo !== "nao" ? "rgba(20,83,45,0.20)" : "rgba(14,165,233,0.10)" }}>
@@ -5197,7 +5247,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
               <p>Eventos com custo alto em relação ao valor total. Vale revisar preço, transporte, ajudante ou aluguel.</p>
               {eventosComLucroRuim.slice(0, 5).map((e) => (
                 <button key={e.id} style={{ ...estilos.botao, display: "block", width: "100%", textAlign: "left" }} onClick={() => abrirEventoRapido(e)}>
-                  {e.nome} - valor {moeda(e.valor)} | custo {moeda(e.custo || 0)} | lucro {moeda(valorNumericoJP(e.valor) - valorNumericoJP(e.custo))}
+                  {e.nome} - valor {moeda(e.valor)} | custo {moeda(e.custo || 0)}{custoDescricaoFinalJP(e) ? ` (${custoDescricaoFinalJP(e)})` : ""} | lucro {moeda(valorNumericoJP(e.valor) - valorNumericoJP(e.custo))}
                 </button>
               ))}
             </div>
@@ -5237,7 +5287,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
               <div key={e.id} style={{ borderBottom: "1px solid #374151", padding: "10px 0" }}>
                 <strong>{dataCurtaBR(e.data)} - {e.nome}</strong>
                 <br />
-                Total: {moeda(e.valor)} | Entrada: {moeda(e.entrada)} | Custo: {moeda(e.custo || 0)} | Lucro: {moeda(valorNumericoJP(e.valor) - valorNumericoJP(e.custo))} | Pendente: {e.quitado ? moeda(0) : moeda(Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0))}
+                Total: {moeda(e.valor)} | Entrada: {moeda(e.entrada)} | Custo: {moeda(e.custo || 0)}{custoDescricaoFinalJP(e) ? ` (${custoDescricaoFinalJP(e)})` : ""} | Lucro: {moeda(valorNumericoJP(e.valor) - valorNumericoJP(e.custo))} | Pendente: {e.quitado ? moeda(0) : moeda(Math.max(Number(e.valor || 0) - Number(e.entrada || 0), 0))}
                 <br />
                 <span style={{ color: corStatus(e), fontWeight: "bold" }}>{textoStatus(e)}</span>
               </div>
