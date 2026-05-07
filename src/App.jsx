@@ -16,6 +16,7 @@ export default function App() {
   const [editandoId, setEditandoId] = useState(null);
   const [busca, setBusca] = useState("");
   const [aba, setAba] = useState("");
+  const [historicoTelas, setHistoricoTelas] = useState([]);
   const [navegacaoAnterior, setNavegacaoAnterior] = useState(null);
   const [voltarCadastroPendente, setVoltarCadastroPendente] = useState(false);
   const [menuAberto, setMenuAberto] = useState(false);
@@ -4541,6 +4542,72 @@ Deseja remover esses lançamentos também?
     setForm((atual) => ({ ...atual, custo: valorLimpo }));
   };
 
+  const capturarTelaAtual = () => ({
+    aba,
+    busca,
+    filtroStatus,
+    eventoExpandidoId,
+    modoEventosExpandido,
+    tituloListaAberta,
+    clienteAbertoChave,
+    origemTelaAnterior,
+    diaSelecionado,
+    mostrarProximosComDiaSelecionado,
+    diaFinanceiroSelecionado,
+    clienteFinanceiroFiltro,
+    painelFinanceiroDetalhe
+  });
+
+  const restaurarTela = (tela = {}) => {
+    setAba(tela.aba || "");
+    setBusca(tela.busca || "");
+    setFiltroStatus(tela.filtroStatus || "todos");
+    setEventoExpandidoId(tela.eventoExpandidoId || null);
+    setModoEventosExpandido(Boolean(tela.modoEventosExpandido));
+    setTituloListaAberta(tela.tituloListaAberta || "");
+    setClienteAbertoChave(tela.clienteAbertoChave || null);
+    setOrigemTelaAnterior(tela.origemTelaAnterior || null);
+    setDiaSelecionado(tela.diaSelecionado || null);
+    setMostrarProximosComDiaSelecionado(Boolean(tela.mostrarProximosComDiaSelecionado));
+    setDiaFinanceiroSelecionado(tela.diaFinanceiroSelecionado || null);
+    setClienteFinanceiroFiltro(tela.clienteFinanceiroFiltro || "");
+    setPainelFinanceiroDetalhe(tela.painelFinanceiroDetalhe || null);
+    setMenuAberto(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const guardarTelaAnterior = () => {
+    const atual = capturarTelaAtual();
+    if (!atual.aba && !atual.busca && !atual.eventoExpandidoId && !atual.diaSelecionado) return;
+    setHistoricoTelas((hist) => [...hist.slice(-9), atual]);
+  };
+
+  const navegarParaAba = (proximaAba, ajustes = {}) => {
+    guardarTelaAnterior();
+    if (Object.prototype.hasOwnProperty.call(ajustes, "busca")) setBusca(ajustes.busca || "");
+    if (Object.prototype.hasOwnProperty.call(ajustes, "filtroStatus")) setFiltroStatus(ajustes.filtroStatus || "todos");
+    if (Object.prototype.hasOwnProperty.call(ajustes, "eventoExpandidoId")) setEventoExpandidoId(ajustes.eventoExpandidoId || null);
+    if (Object.prototype.hasOwnProperty.call(ajustes, "modoEventosExpandido")) setModoEventosExpandido(Boolean(ajustes.modoEventosExpandido));
+    if (Object.prototype.hasOwnProperty.call(ajustes, "tituloListaAberta")) setTituloListaAberta(ajustes.tituloListaAberta || "");
+    if (Object.prototype.hasOwnProperty.call(ajustes, "diaSelecionado")) setDiaSelecionado(ajustes.diaSelecionado || null);
+    if (Object.prototype.hasOwnProperty.call(ajustes, "clienteAbertoChave")) setClienteAbertoChave(ajustes.clienteAbertoChave || null);
+    setAba(proximaAba);
+    setMenuAberto(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const voltarTelaAnteriorGlobal = () => {
+    setHistoricoTelas((hist) => {
+      const ultimo = hist[hist.length - 1];
+      if (!ultimo) {
+        voltarParaInicio();
+        return [];
+      }
+      setTimeout(() => restaurarTela(ultimo), 0);
+      return hist.slice(0, -1);
+    });
+  };
+
   const selecionarAbaMenu = (id) => {
     setNavegacaoAnterior(null);
     setVoltarCadastroPendente(false);
@@ -4549,7 +4616,12 @@ Deseja remover esses lançamentos também?
     setModoEventosExpandido(false);
     setTituloListaAberta("");
     setOrigemTelaAnterior(null);
-    setAba((atual) => (atual === id ? "" : id));
+    if (aba === id) {
+      setAba("");
+    } else {
+      guardarTelaAnterior();
+      setAba(id);
+    }
     setMenuAberto(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -4562,10 +4634,14 @@ Deseja remover esses lançamentos também?
     setModoEventosExpandido(false);
     setTituloListaAberta("");
     setOrigemTelaAnterior(null);
+    setDiaSelecionado(null);
+    setMostrarProximosComDiaSelecionado(false);
+    setHistoricoTelas([]);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const abrirClienteDoEvento = (evento, origem = "eventos") => {
+    guardarTelaAnterior();
     const chave = normalizarTexto(evento?.whatsapp || evento?.nome || "");
     setClienteAbertoChave(chave);
     setOrigemTelaAnterior(origem);
@@ -4575,6 +4651,7 @@ Deseja remover esses lançamentos também?
   };
 
   const novoEventoServicoParaCliente = (cliente, origem = "clientes") => {
+    guardarTelaAnterior();
     setOrigemTelaAnterior(origem);
     setEditandoId(null);
     setForm({
@@ -4606,6 +4683,7 @@ Deseja remover esses lançamentos também?
   };
 
   const abrirEventoDaLista = (evento, titulo = "Lista de eventos") => {
+    if (eventoExpandidoId !== evento.id) guardarTelaAnterior();
     setEventoExpandidoId((atual) => (atual === evento.id ? null : evento.id));
     setModoEventosExpandido(false);
     setTituloListaAberta(titulo);
@@ -4674,9 +4752,9 @@ Deseja remover esses lançamentos também?
           ))}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 8, marginTop: 10 }}>
-          <button style={estilos.botao} onClick={() => { setAba("eventos"); setFiltroStatus("naoExecutado"); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Ver eventos que faltam fazer</button>
-          <button style={estilos.botao} onClick={() => { setAba("eventos"); setFiltroStatus("executado"); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Ver eventos já feitos</button>
-          <button style={estilos.botaoRoxo} onClick={() => { setAba("agenda"); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Abrir agenda do mês</button>
+          <button style={estilos.botao} onClick={() => navegarParaAba("eventos", { filtroStatus: "naoExecutado" })}>Ver eventos que faltam fazer</button>
+          <button style={estilos.botao} onClick={() => navegarParaAba("eventos", { filtroStatus: "executado" })}>Ver eventos já feitos</button>
+          <button style={estilos.botaoRoxo} onClick={() => navegarParaAba("agenda")}>Abrir agenda do mês</button>
         </div>
       </div>
     );
@@ -4739,7 +4817,7 @@ Deseja remover esses lançamentos também?
   return (
     <div style={estilos.pagina} translate="no">
       <h1 style={estilos.titulo}>JP Eventos Pro</h1>
-      <p style={estilos.subtitulo}>Sistema completo com eventos, contratos, recibos, atalhos por cliente, caixa por contas/bancos, forma de pagamento separada, cartão parcelado até 12x e calendário financeiro. v26.13 painel de eventos feitos, futuros e a realizar.</p>
+      <p style={estilos.subtitulo}>Sistema completo com eventos, contratos, recibos, atalhos por cliente, caixa por contas/bancos, forma de pagamento separada, cartão parcelado até 12x e calendário financeiro. v26.14 voltar inteligente e histórico de telas.</p>
 
       <input
         placeholder="Buscar em tudo: cliente, WhatsApp, CPF, evento, serviço, data, cidade, pacote..."
@@ -4782,8 +4860,11 @@ Deseja remover esses lançamentos também?
         )}
       </div>
 
-      {aba !== "" && (
-        <button style={{ ...estilos.botao, marginBottom: 12 }} onClick={aba === "servico" ? voltarTelaAnteriorSegura : voltarParaInicio}>← {aba === "servico" ? "Voltar para cliente/lista" : "Voltar para tela inicial"}</button>
+      {(aba !== "" || historicoTelas.length > 0) && (
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8, marginBottom: 12 }}>
+          <button style={estilos.botao} onClick={aba === "servico" ? voltarTelaAnteriorSegura : voltarTelaAnteriorGlobal}>← Voltar para tela anterior</button>
+          <button style={estilos.botao} onClick={voltarParaInicio}>🏠 Voltar para tela inicial</button>
+        </div>
       )}
 
       {aba === "config" && (
@@ -4840,8 +4921,8 @@ Deseja remover esses lançamentos também?
             <p>Pré-reservas próximas: <strong>{preReservasProximas.length}</strong></p>
             <p>Clientes sem retorno: <strong>{clientesSumidos.length}</strong></p>
             <p>Pagamentos pendentes: <strong>{pendentesFinanceiros.length}</strong></p>
-            <button style={estilos.botao} onClick={() => setAba("agenda")}>Ver agenda</button>
-            <button style={estilos.botao} onClick={() => setAba("financeiro")}>Ver financeiro</button>
+            <button style={estilos.botao} onClick={() => navegarParaAba("agenda")}>Ver agenda</button>
+            <button style={estilos.botao} onClick={() => navegarParaAba("financeiro")}>Ver financeiro</button>
           </div>
 
           <div style={{ ...estilos.card, background: "#3a2e00", borderColor: "orange" }}>
@@ -4872,7 +4953,7 @@ Deseja remover esses lançamentos também?
             <div style={estilos.card}>
               <h3>🔥 Próximo evento</h3>
               <p>Nenhum evento futuro cadastrado ainda.</p>
-              <button style={estilos.botaoRoxo} onClick={() => setAba("cadastro")}>Cadastrar cliente</button>
+              <button style={estilos.botaoRoxo} onClick={() => navegarParaAba("cadastro")}>Cadastrar cliente</button>
             </div>
           )}
 
@@ -4884,7 +4965,7 @@ Deseja remover esses lançamentos também?
                   {dataBR(ev.data)} - {normalizarHorarioManual(ev.horaInicio) || ev.horaInicio || "horário"} | {ev.nome} | {ev.tipoEvento} | {eventoQuitadoJP(ev) ? "Quitado" : `Pendente ${moeda(saldoPendenteEventoJP(ev))}`}
                 </button>
               ))}
-              <button style={estilos.botaoRoxo} onClick={() => { setEventoExpandidoId(null); setModoEventosExpandido(false); setAba("agenda"); }}>Ver todos os próximos eventos</button>
+              <button style={estilos.botaoRoxo} onClick={() => navegarParaAba("agenda", { eventoExpandidoId: null, modoEventosExpandido: false })}>Ver todos os próximos eventos</button>
             </div>
           )}
 
@@ -4896,7 +4977,7 @@ Deseja remover esses lançamentos também?
               <div style={estilos.linhaInfo}><strong>Lucro estimado</strong><br />{moeda(lucroTotal)}</div>
               <div style={estilos.linhaInfo}><strong>Meta do mês</strong><br />{percentualMetaMensal}%</div>
             </div>
-            <button style={estilos.botaoRoxo} onClick={() => setAba("financeiro")}>Abrir financeiro completo</button>
+            <button style={estilos.botaoRoxo} onClick={() => navegarParaAba("financeiro")}>Abrir financeiro completo</button>
           </details>
         </>
       )}
@@ -4907,7 +4988,7 @@ Deseja remover esses lançamentos também?
           {preReservasProximas.length > 0 && (
             <p>⚠️ {preReservasProximas.length} pré-reserva(s) vencendo em até 3 dias sem confirmação.</p>
           )}
-          <button style={estilos.botao} onClick={() => setAba("agenda")}>Ver agenda</button>
+          <button style={estilos.botao} onClick={() => navegarParaAba("agenda")}>Ver agenda</button>
         </div>
       )}
 
@@ -5518,7 +5599,7 @@ Usar essa data no cadastro
                 <div style={{ ...estilos.linhaInfo, color: cliente.pendente > 0 ? "#ef4444" : "#22c55e" }}><strong>Pendente</strong><br />{moeda(cliente.pendente)}</div>
               </div>
               <div style={estilos.grupoAcoes}>
-                <button style={estilos.botaoRoxo} onClick={() => { setBusca(cliente.nome); setFiltroStatus("todos"); setEventoExpandidoId(null); setModoEventosExpandido(false); setTituloListaAberta(`Eventos/serviços de ${cliente.nome}`); setAba("eventos"); }}>Abrir eventos/serviços deste cliente</button>
+                <button style={estilos.botaoRoxo} onClick={() => navegarParaAba("eventos", { busca: cliente.nome, filtroStatus: "todos", eventoExpandidoId: null, modoEventosExpandido: false, tituloListaAberta: `Eventos/serviços de ${cliente.nome}` })}>Abrir eventos/serviços deste cliente</button>
                 <button style={estilos.botao} onClick={() => novoEventoServicoParaCliente(cliente, "clientes")}>+ Novo evento / serviço para este cliente</button>
                 <button style={{ ...estilos.botaoPequeno, background: "#991b1b", color: "white" }} onClick={() => excluirClienteCompleto(cliente)}>🗑️ Excluir cliente completo</button>
               </div>
@@ -5721,7 +5802,7 @@ Usar essa data no cadastro
               <button
                 key={`${cliente.nome}-${index}`}
                 style={{ ...estilos.botao, display: "block", width: "100%", textAlign: "left" }}
-                onClick={() => { setBusca(cliente.nome); setAba("eventos"); }}
+                onClick={() => navegarParaAba("eventos", { busca: cliente.nome })}
               >
                 #{index + 1} {cliente.nome} - {cliente.qtd} evento(s) - {cliente.fechados} fechado(s) - {moeda(cliente.total)}
               </button>
