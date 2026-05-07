@@ -88,13 +88,14 @@ export default function App() {
     const info = pacoteInfo(pacoteEscolhido);
     if (!info) return;
 
-    // Este botão agora só usa a sugestão quando você clicar nele de propósito.
-    // Se quiser preço manual, basta digitar no campo VALOR TOTAL e ele será mantido.
+    // Usa somente o VALOR TOTAL sugerido do pacote.
+    // A entrada/sinal agora vem apenas do campo "Pagamento inicial no cadastro",
+    // para não confundir nem jogar o valor total dentro da entrada.
     setForm((atual) => ({
       ...atual,
       pacote: pacoteEscolhido,
       valor: String(info.valor),
-      entrada: String(info.entrada),
+      entrada: editandoId ? atual.entrada : "0",
       formaEntrada: atual.formaEntrada || "Pix",
       formaPagamento: atual.formaPagamento || "Entrada / sinal"
     }));
@@ -102,7 +103,6 @@ export default function App() {
 
   const confirmarValorManual = () => {
     const valorManual = String(form.valor ?? "").trim();
-    const sinalManual = String(form.entrada ?? "").trim();
 
     if (!valorManual) {
       alert("Digite primeiro o valor final no campo VALOR TOTAL.");
@@ -113,10 +113,10 @@ export default function App() {
     setForm((atual) => ({
       ...atual,
       valor: valorManual,
-      entrada: sinalManual === "" ? "0" : sinalManual
+      entrada: editandoId ? atual.entrada : "0"
     }));
 
-    alert(`Valor manual confirmado!\n\nValor final: ${moeda(valorManual)}${sinalManual ? `\nSinal: ${moeda(sinalManual)}` : ""}\n\nA proposta, o contrato e o WhatsApp vão usar esse valor.`);
+    alert(`Valor manual confirmado!\n\nValor final: ${moeda(valorManual)}\n\nSe o cliente já pagou sinal/entrada, marque "Registrar esse pagamento no caixa ao salvar" e informe o valor recebido uma única vez.`);
   };
 
   const mensagemComPreco = (evento = form) => {
@@ -2084,9 +2084,16 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
     };
 
     const pagamentoCadastro = registrarPagamentoInicialDoCadastro(eventoBase);
+
+    // Regra definitiva para não confundir:
+    // - Valor total é o preço do evento.
+    // - Entrada/sinal é SOMENTE o que entrou no caixa.
+    // - Em novo cadastro sem pagamento marcado, entrada fica 0.
+    // - Em edição, mantém a entrada já salva se nenhum novo pagamento for registrado.
+    const entradaAnterior = editandoId ? Number(eventoBase.entrada || 0) : 0;
     const entradaComPagamentoInicial = pagamentoCadastro.entradaRegistrada > 0
-      ? Math.max(Number(eventoBase.entrada || 0), pagamentoCadastro.entradaRegistrada)
-      : Number(eventoBase.entrada || 0);
+      ? entradaAnterior + pagamentoCadastro.entradaRegistrada
+      : entradaAnterior;
 
     const valorTotal = Number(eventoBase.valor || 0);
     const quitadoAutomatico = valorTotal > 0 && entradaComPagamentoInicial >= valorTotal;
@@ -4384,9 +4391,10 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
             setForm({
               ...form,
               pacote: pacoteEscolhido,
-              // O pacote mostra a sugestão, mas não apaga valor/sinal que você já digitou manualmente.
+              // O pacote sugere apenas o VALOR TOTAL.
+              // Entrada/sinal é registrada somente na área "Pagamento inicial no cadastro".
               valor: campoFoiPreenchido(form.valor) ? form.valor : (info ? String(info.valor) : ""),
-              entrada: campoFoiPreenchido(form.entrada) ? form.entrada : "0",
+              entrada: editandoId ? form.entrada : "0",
               formaEntrada: info && !form.formaEntrada ? "Pix" : form.formaEntrada,
               formaPagamento: info && !form.formaPagamento ? "Entrada / sinal" : form.formaPagamento
             });
@@ -4412,14 +4420,14 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
           {form.pacote && pacoteInfo(form.pacote) && (
             <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20, 83, 45, 0.28)" }}>
               <strong>🚀 Automação profissional ativada</strong><br />
-              Valor final da proposta: {moeda(campoFoiPreenchido(form.valor) ? form.valor : pacoteInfo(form.pacote).valor)} | Sinal: {moeda(campoFoiPreenchido(form.entrada) ? form.entrada : 0)}
+              Valor final da proposta: {moeda(campoFoiPreenchido(form.valor) ? form.valor : pacoteInfo(form.pacote).valor)}
               <br />
-              <span style={{ color: "#bbf7d0" }}>Sugestão original do pacote: {moeda(pacoteInfo(form.pacote).valor)} | Sinal sugerido: {moeda(pacoteInfo(form.pacote).entrada)}</span>
+              <span style={{ color: "#bbf7d0" }}>Sugestão original do pacote: {moeda(pacoteInfo(form.pacote).valor)}. O sinal/entrada só será lançado se você marcar o pagamento inicial abaixo.</span>
               <br />
               <span style={{ color: "#bbf7d0" }}>{pacoteInfo(form.pacote).descricao}</span>
               <br />
               <button style={estilos.botaoRoxo} onClick={confirmarValorManual}>Confirmar valor manual</button>
-              <button style={estilos.botao} onClick={() => aplicarValorDoPacote(form.pacote)}>Usar sugestão original do pacote</button>
+              <button style={estilos.botao} onClick={() => aplicarValorDoPacote(form.pacote)}>Usar valor sugerido do pacote</button>
               <button
                 style={estilos.botao}
                 onClick={() => setForm({ ...form, pacote: "", pacotePersonalizado: "" })}
@@ -4432,7 +4440,13 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
           )}
 
           <label style={{ fontWeight: "bold", color: "#38bdf8" }}>VALOR TOTAL:</label><input ref={valorInputRef} style={{ ...estilos.input, borderColor: "#38bdf8" }} placeholder="Digite aqui o valor final combinado" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} />
-          <label style={{ fontWeight: "bold", color: "#facc15" }}>ENTRADA / SINAL:</label><input ref={entradaInputRef} style={{ ...estilos.input, borderColor: "#facc15" }} placeholder="Digite aqui o sinal combinado" value={form.entrada} onChange={(e) => setForm({ ...form, entrada: e.target.value })} />
+          <div style={{ ...estilos.card, borderColor: "#facc15", background: "rgba(250,204,21,0.08)" }}>
+            <strong style={{ color: "#facc15" }}>🧾 Entrada / sinal</strong>
+            <p style={{ margin: "6px 0", color: "#c4b5fd" }}>
+              Você não precisa preencher entrada duas vezes. Se o cliente pagou agora, marque "Registrar esse pagamento no caixa ao salvar" logo abaixo e digite o valor recebido lá.
+            </p>
+            <strong>Entrada registrada neste cadastro: {moeda(form.entrada || 0)}</strong>
+          </div>
           <label style={{ fontWeight: "bold" }}>CUSTO DO EVENTO:</label><input style={estilos.input} placeholder="Ex: transporte, ajudante, aluguel, combustível..." value={form.custo || ""} onChange={(e) => setForm({ ...form, custo: e.target.value })} />
           <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20, 83, 45, 0.20)" }}>
             <strong>📈 Lucro estimado:</strong> {moeda(Number(form.valor || 0) - Number(form.custo || 0))}
@@ -4464,7 +4478,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
                 <label style={{ fontWeight: "bold", color: "#facc15" }}>VALOR RECEBIDO AGORA:</label>
                 <input
                   style={{ ...estilos.input, borderColor: "#facc15" }}
-                  placeholder="Ex: 125"
+                  placeholder="Ex: 125 (somente o que recebeu agora, não o valor total)"
                   value={pagamentoInicialCadastro.valor}
                   onChange={(e) => setPagamentoInicialCadastro({ ...pagamentoInicialCadastro, valor: e.target.value })}
                 />
