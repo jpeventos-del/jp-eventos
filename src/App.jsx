@@ -2037,7 +2037,7 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
       return;
     }
 
-    const custoDescricaoLimpa = String(custoDescricaoDigitando || "").trim();
+    const custoDescricaoLimpa = String(form.custoDescricao || "").trim();
     const obsInternasSemCusto = removerCustoDescricaoJP(form.obsInternas ?? form.obs);
     const obsInternasComCusto = [
       obsInternasSemCusto,
@@ -4525,15 +4525,15 @@ const horaFimFinal = corrigirHoraFimQuandoPegouDuracaoComoHorario();
           <input
             style={estilos.input}
             placeholder="Ex: combustível, ajudante, alimentação, aluguel de equipamento..."
-            value={custoDescricaoDigitando}
-            onChange={(e) => setCustoDescricaoDigitando(String(e.target.value || ""))}
+            value={form.custoDescricao || ""}
+            onChange={(e) => setForm((atual) => ({ ...atual, custoDescricao: String(e.target.value || "") }))}
           />
 
           <div style={{ ...estilos.card, borderColor: "#22c55e", background: "rgba(20, 83, 45, 0.20)" }}>
             <strong>📈 Lucro estimado:</strong> {moeda(lucroCadastroNumero)}
             <br />
             <span style={{ color: "#bbf7d0" }}>
-              Atualiza na hora: Valor total {moeda(valorCadastroNumero)} - Custo {moeda(custoCadastroNumero)}{custoDescricaoDigitando ? ` (${String(custoDescricaoDigitando)})` : ""} = {moeda(lucroCadastroNumero)}.
+              Atualiza na hora: Valor total {moeda(valorCadastroNumero)} - Custo {moeda(custoCadastroNumero)}{form.custoDescricao ? ` (${String(form.custoDescricao)})` : ""} = {moeda(lucroCadastroNumero)}.
             </span>
           </div>
 
